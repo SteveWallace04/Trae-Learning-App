@@ -42,9 +42,45 @@ textarea:disabled { cursor: not-allowed; }
 .composer-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; color: #6f796e; font-size: 12px; }
 .send { border: 0; border-radius: 9px; padding: 10px 16px; background: #e8ece6; color: #74816f; }
 .send:disabled { cursor: not-allowed; }
+.send:not(:disabled) { background: #2f5943; color: white; cursor: pointer; }
 .send span { margin-left: 10px; }
 .composer-note { text-align: center; color: #737c72; font-size: 12px; line-height: 1.6; margin: 12px 0 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.header-actions { display: flex; align-items: center; gap: 18px; }
+.secondary { padding: 7px 12px; border: 1px solid #d4ddd2; border-radius: 8px; background: #fff; color: #35543c; cursor: pointer; }
+.secondary:disabled { opacity: .5; cursor: not-allowed; }
+.workspace { max-width: 840px; }
+.composer-area { position: sticky; bottom: 0; padding-top: 16px; padding-bottom: 12px; background: #f7f8f5; }
+.composer-note { min-height: 20px; }
+#messages { flex: 1; min-width: 0; }
+.message { padding: 24px 8px; border-bottom: 1px solid #e3e8df; overflow-wrap: anywhere; }
+.message-role { color: #52705a; font-size: 12px; font-weight: 600; margin: 0 0 10px; }
+.message-content { line-height: 1.85; font-size: 15px; }
+.message-content.plain { white-space: pre-wrap; }
+.message-content > :first-child { margin-top: 0; }
+.message-content > :last-child { margin-bottom: 0; }
+.message-content h1, .message-content h2, .message-content h3 { font-size: 20px; line-height: 1.5; letter-spacing: normal; }
+.message-content a { color: #2b6748; }
+.message-content pre { position: relative; padding: 42px 16px 16px; overflow-x: auto; border-radius: 10px; background: #edf0eb; }
+.message-content code { font-family: Consolas, monospace; font-size: 13px; }
+.message-content :not(pre) > code { background: #e8eee3; padding: 2px 4px; border-radius: 4px; }
+.message-content table { display: block; overflow-x: auto; border-collapse: collapse; }
+.message-content td, .message-content th { padding: 6px 12px; border: 1px solid #d4ddd2; }
+.copy-code { position: absolute; top: 8px; right: 8px; font-size: 12px; }
+.message-status { color: #7a6651; font-size: 12px; line-height: 1.8; margin-top: 12px; }
+.message-status:empty { display: none; }
+.message .secondary { margin-top: 8px; }
+.page-alert { color: #883f2e; background: #f8ebe4; padding: 12px; border-radius: 8px; font-size: 13px; line-height: 1.7; margin-bottom: 10px; }
+.composer:focus-within { border-color: #527d63; }
+textarea { max-height: 180px; overflow-y: auto; outline: none; }
+dialog { width: min(480px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow-y: auto; border: 1px solid #d4ddd2; border-radius: 16px; padding: 26px; color: inherit; }
+dialog::backdrop { background: #15271d60; }
+.dialog-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.dialog-heading h2 { margin: 0; font-size: 20px; font-weight: 500; }
+dialog label { display: block; margin: 16px 0 8px; font-size: 14px; }
+dialog input, dialog select { width: 100%; font: inherit; padding: 10px; border: 1px solid #becbbd; border-radius: 7px; background: white; color: inherit; }
+.field-note { color: #63705f; font-size: 12px; line-height: 1.8; }
+#settings-status { font-size: 13px; color: #883f2e; line-height: 1.7; }
 @media (max-width: 560px) {
   .header { padding: 18px 20px; flex-wrap: wrap; }
   .brand { font-size: 15px; }

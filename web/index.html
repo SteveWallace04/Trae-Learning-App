@@ -5,8 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Trae-Learning · 个人编程学习</title>
-  <link rel="stylesheet" href="/static/style.css">
-  <script src="/static/app.js" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=2">
+  <script src="/static/vendor/marked.umd.js" defer></script>
+  <script src="/static/vendor/purify.min.js" defer></script>
+  <script src="/static/app.js?v=2" defer></script>
 </head>
 <body>
   <header class="header">
@@ -14,11 +16,11 @@
       <span class="brand-mark" aria-hidden="true">t.</span>
       <span>Trae-Learning</span>
     </a>
-    <div class="connection" role="status" aria-live="polite">
+    <div class="header-actions"><div class="connection" role="status" aria-live="polite">
       <span class="status-dot" aria-hidden="true"></span>
       <span id="connection-label">正在连接本地服务</span>
       <button id="retry" class="retry" type="button" hidden>重试</button>
-    </div>
+    </div><button id="settings-open" type="button" class="secondary" disabled>设置</button></div>
   </header>
 
   <main class="workspace">
@@ -26,23 +28,40 @@
       <p class="eyebrow">个人 AI 编程学习</p>
       <h1 id="welcome-title">从一个你想弄懂的<br>问题开始。</h1>
       <p class="intro">一个概念，一段代码，或一个还没想明白的为什么。</p>
-      <div class="model-notice">
+      <div class="model-notice" id="model-notice">
         <span class="notice-mark" aria-hidden="true">i</span>
-        <p>尚未连接 DeepSeek。<br><span>连接模型后，就可以在这里开始对话。</span></p>
+        <p>尚未配置 DeepSeek。<br><span>在右上角设置中填写密钥，再开始对话。</span></p>
       </div>
     </section>
 
+    <section id="messages" aria-label="聊天记录"></section>
     <section class="composer-area" aria-label="消息输入">
-      <div class="composer">
+      <div id="page-alert" role="alert" class="page-alert" hidden></div>
+      <button id="restore" type="button" class="secondary" hidden>重新读取聊天</button>
+      <button id="save-retry" type="button" class="secondary" hidden>重试保存</button>
+      <form id="composer" class="composer">
         <label for="message" class="sr-only">输入问题</label>
         <textarea id="message" rows="2" disabled placeholder="输入问题，也可以粘贴代码……" aria-describedby="composer-note"></textarea>
         <div class="composer-footer">
-          <span>DeepSeek · 未连接</span>
-          <button class="send" type="button" disabled>发送 <span aria-hidden="true">↑</span></button>
+          <span id="model-label">DeepSeek · 未配置</span>
+          <button id="send" class="send" type="submit" disabled>发送 ↑</button>
         </div>
-      </div>
-      <p id="composer-note" class="composer-note">聊天暂不可用，当前不会发送或保存消息。</p>
+      </form>
+      <p id="composer-note" class="composer-note" role="status">正在读取本地记录……</p>
     </section>
   </main>
+  <dialog id="settings-dialog" aria-labelledby="settings-title">
+    <form id="settings-form">
+      <div class="dialog-heading"><h2 id="settings-title">DeepSeek 设置</h2><button id="settings-close" type="button" class="secondary" aria-label="关闭设置">关闭</button></div>
+      <label for="api-key">API Key</label>
+      <input id="api-key" type="password" autocomplete="off" spellcheck="false" maxlength="512" placeholder="填写 DeepSeek API Key">
+      <p id="key-note" class="field-note"></p>
+      <label for="model-select">模型</label>
+      <select id="model-select"></select>
+      <p class="field-note">配置以明文保存在本机，不提交 Git。聊天时，相关消息会发送给 DeepSeek，并按你的 API 账户计费。</p>
+      <p id="settings-status" role="status"></p>
+      <button id="settings-save" type="submit" class="send">保存设置</button>
+    </form>
+  </dialog>
 </body>
 </html>

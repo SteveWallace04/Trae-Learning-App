@@ -1,29 +1,250 @@
-"""Serve the local page. Run from the repository with python -m app.main."""
+"""One local service for the page, settings, and a single active conversation."""
 
+import asyncio
+from contextlib import asynccontextmanager, suppress
+import json
+import logging
 from pathlib import Path
+from typing import Literal
+from urllib.parse import urlsplit
+from uuid import UUID
 
 import uvicorn
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field, SecretStr, field_validator
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+from app import model, storage
 
-app = FastAPI(title="Trae-Learning", docs_url=None, redoc_url=None, openapi_url=None)
-
-
-@app.get("/api/health")
-def health():
-    return {"status": "ok"}
-
-
-@app.get("/")
-def index():
-    return FileResponse(WEB_DIR / "index.html")
+ROOT = Path(__file__).resolve().parent.parent
+WEB_DIR = ROOT / "web"
+logger = logging.getLogger(__name__)
 
 
-app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+class SettingsInput(BaseModel):
+    api_key: SecretStr = SecretStr("")
+    model: Literal["deepseek-flash", "deepseek-v4-pro"]
 
+    @field_validator("api_key")
+    @classmethod
+    def validate_key(cls, value):
+        key = value.get_secret_value().strip()
+        if len(key) > 512 or any(not (c.isascii() and (c.isalnum() or c in "-_.")) for c in key):
+            raise ValueError("Invalid key format")
+        return SecretStr(key)
+
+
+class ChatInput(BaseModel):
+    message: str = Field(default="", max_length=100_000)
+    retry_id: UUID | None = None
+
+
+def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
+    # Injectable root and model call keep tests away from personal files and paid APIs.
+    @asynccontextmanager
+    async def lifespan(app):
+        app.state.conversation = storage.load_conversation(root)
+        recovered = False
+        for message in app.state.conversation.messages:
+            if message.status == "streaming":
+                message.status = "interrupted"
+                message.error = "程序上次意外中断，回答未完成。"
+                recovered = True
+        if recovered:
+            storage.save_conversation(root, app.state.conversation)
+        yield
+        task = app.state.active_task
+        if task:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+    app = FastAPI(title="Trae-Learning", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    app.state.active_task = None
+    app.state.active_id = None
+    app.state.save_error = False
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
+
+    @app.middleware("http")
+    async def local_requests(request: Request, call_next):
+        # A different website must not change local keys or trigger paid requests.
+        origin = request.headers.get("origin")
+        if request.url.path.startswith("/api/") and origin and urlsplit(origin).netloc != request.headers.get("host"):
+            return JSONResponse({"detail": "只接受本页发起的请求。"}, status_code=403)
+        response = await call_next(request)
+        # Local updates must not mix a new page with cached old scripts/styles.
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_input(request, exc):
+        # Default validation errors include input values, possibly credentials.
+        return JSONResponse({"detail": "输入格式不正确，请检查内容和模型设置。"}, status_code=422)
+
+    @app.exception_handler(OSError)
+    async def file_error(request, exc):
+        return JSONResponse({"detail": "本地文件读写失败，请检查磁盘空间和文件权限。"}, status_code=503)
+
+    def settings_view():
+        settings = storage.read_settings(root)
+        return {"configured": bool(settings["api_key"]), "model": settings["model"], "models": list(storage.MODELS)}
+
+    def persist():
+        try:
+            storage.save_conversation(root, app.state.conversation)
+            app.state.save_error = False
+            return True
+        except OSError:
+            app.state.save_error = True
+            return False
+
+    @app.get("/api/health")
+    async def health():
+        return {"status": "ok"}
+
+    @app.get("/api/settings")
+    async def get_settings():
+        return settings_view()
+
+    @app.post("/api/settings")
+    async def update_settings(body: SettingsInput):
+        if app.state.active_task:
+            raise HTTPException(409, "请等待当前回答结束后再修改设置。")
+        key = body.api_key.get_secret_value() or storage.read_settings(root)["api_key"]
+        if not key:
+            raise HTTPException(400, "请填写 DeepSeek API Key。")
+        storage.save_settings(root, key, body.model)
+        return settings_view()
+
+    @app.get("/api/conversation")
+    async def get_conversation():
+        return {"conversation": app.state.conversation.model_dump(mode="json"), "active": bool(app.state.active_task), "save_error": app.state.save_error}
+
+    @app.post("/api/conversation/save")
+    async def retry_save():
+        if app.state.active_task:
+            raise HTTPException(409, "请先停止生成，再重试保存。")
+        if not persist():
+            raise HTTPException(503, "保存仍然失败，请保留此页面并检查磁盘空间和权限。")
+        return {"saved": True}
+
+    @app.post("/api/chat/stop")
+    async def stop_chat(body: dict):
+        if str(app.state.active_id) != body.get("reply_id"):
+            raise HTTPException(409, "这条回答已结束，请刷新聊天记录。")
+        task = app.state.active_task
+        if task:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        return {"stopped": True, "saved": not app.state.save_error}
+
+    @app.post("/api/chat")
+    async def chat(body: ChatInput, request: Request):
+        if app.state.active_task:
+            raise HTTPException(409, "已有回答正在生成，请勿在多个窗口同时发送。")
+        if app.state.save_error:
+            raise HTTPException(503, "当前记录尚未保存，请先重试保存。")
+        settings = storage.read_settings(root)
+        if not settings["api_key"]:
+            raise HTTPException(400, "请先在设置中填写 DeepSeek API Key。")
+        if settings["model"] not in storage.MODELS:
+            raise HTTPException(400, "请在设置中选择支持的模型。")
+        conversation = app.state.conversation
+        if body.retry_id:
+            if body.message.strip():
+                raise HTTPException(400, "重试时不能同时提交新问题。")
+            if not conversation.messages:
+                raise HTTPException(409, "没有可以重试的问题。")
+            last = conversation.messages[-1]
+            if last.id != body.retry_id or last.role != "assistant" or last.status not in ("error", "stopped", "interrupted"):
+                raise HTTPException(409, "只支持重试最后一条未完成的回答。")
+            user = next(message for message in reversed(conversation.messages) if message.id == last.reply_to)
+        else:
+            text = body.message.strip()
+            if not text:
+                raise HTTPException(400, "请先输入问题。")
+            user = storage.Message(role="user", content=text)
+        # Only completed turns enter context; incomplete attempts stay visible in history.
+        users = {message.id: message for message in conversation.messages if message.role == "user"}
+        context = []
+        for message in conversation.messages:
+            if message.role == "assistant" and message.status == "complete":
+                context.extend([
+                    {"role": "user", "content": users[message.reply_to].content},
+                    {"role": "assistant", "content": message.content},
+                ])
+        context.append({"role": "user", "content": user.content})
+        previous_count = len(conversation.messages)
+        if not body.retry_id:
+            conversation.messages.append(user)
+        answer = storage.Message(role="assistant", reply_to=user.id, status="streaming")
+        conversation.messages.append(answer)
+        try:
+            storage.save_conversation(root, conversation)
+        except OSError:
+            del conversation.messages[previous_count:]
+            raise HTTPException(503, "问题未能保存，尚未调用模型。请检查磁盘空间和权限后重试。")
+
+        events = asyncio.Queue()
+
+        async def produce():
+            try:
+                async for text in stream_reply(settings, context):
+                    answer.content += text
+                    events.put_nowait({"type": "delta", "text": text})
+                if not answer.content:
+                    raise model.ModelError("模型没有返回文字，请重试。")
+                answer.status = "complete"
+            except asyncio.CancelledError:
+                answer.status = "stopped"
+            except model.ModelError as exc:
+                answer.status, answer.error = "error", str(exc)
+            except Exception:
+                logger.error("Generation failed unexpectedly; provider payload omitted")
+                answer.status, answer.error = "error", "生成遇到异常，已保留问题和收到的文字。"
+            finally:
+                saved = persist()
+                app.state.active_task = None
+                app.state.active_id = None
+                events.put_nowait({"type": "done", "message": answer.model_dump(mode="json"), "saved": saved})
+
+        task = asyncio.create_task(produce())
+        app.state.active_task = task
+        app.state.active_id = answer.id
+
+        async def event_stream():
+            try:
+                initial = {"type": "start", "user": user.model_dump(mode="json"), "message": {**answer.model_dump(mode="json"), "content": "", "status": "streaming"}}
+                yield json.dumps(initial, ensure_ascii=False) + "\n"
+                while True:
+                    try:
+                        event = await asyncio.wait_for(events.get(), timeout=1)
+                    except TimeoutError:
+                        if await request.is_disconnected():
+                            break
+                        continue
+                    yield json.dumps(event, ensure_ascii=False) + "\n"
+                    if event["type"] == "done":
+                        break
+            finally:
+                if not task.done():
+                    task.cancel()
+
+        return StreamingResponse(event_stream(), media_type="application/x-ndjson", headers={"X-Content-Type-Options": "nosniff"})
+
+    @app.get("/")
+    async def index():
+        return FileResponse(WEB_DIR / "index.html")
+
+    app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+    return app
+
+
+app = create_app()
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)
