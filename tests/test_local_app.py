@@ -73,7 +73,7 @@ uvicorn.run(create_app(root, slow), host='127.0.0.1', port=int(sys.argv[2]))
 
     def test_health_endpoint(self):
         with urlopen(self.base_url + "/api/health") as response:
-            self.assertEqual(json.load(response), {"status": "ok"})
+            self.assertEqual(json.load(response), {"status": "ok", "app": "trae-learning"})
 
     def test_disconnecting_browser_stops_generation_and_saves_partial_text(self):
         with httpx.Client() as client:

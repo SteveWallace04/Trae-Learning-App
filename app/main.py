@@ -103,7 +103,7 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
 
     @app.get("/api/health")
     async def health():
-        return {"status": "ok"}
+        return {"status": "ok", "app": "trae-learning"}
 
     @app.get("/api/settings")
     async def get_settings():
