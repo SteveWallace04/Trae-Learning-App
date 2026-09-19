@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Trae-Learning · 个人编程学习</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="header">
+    <a class="brand" href="/" aria-label="Trae-Learning 首页">
+      <span class="brand-mark" aria-hidden="true">t.</span>
+      <span>Trae-Learning</span>
+    </a>
+    <div class="connection" role="status" aria-live="polite">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span id="connection-label">正在连接本地服务</span>
+      <button id="retry" class="retry" type="button" hidden>重试</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="welcome" aria-labelledby="welcome-title">
+      <p class="eyebrow">个人 AI 编程学习</p>
+      <h1 id="welcome-title">从一个你想弄懂的<br>问题开始。</h1>
+      <p class="intro">一个概念，一段代码，或一个还没想明白的为什么。</p>
+      <div class="model-notice">
+        <span class="notice-mark" aria-hidden="true">i</span>
+        <p>尚未连接 DeepSeek。<br><span>连接模型后，就可以在这里开始对话。</span></p>
+      </div>
+    </section>
+
+    <section class="composer-area" aria-label="消息输入">
+      <div class="composer">
+        <label for="message" class="sr-only">输入问题</label>
+        <textarea id="message" rows="2" disabled placeholder="输入问题，也可以粘贴代码……" aria-describedby="composer-note"></textarea>
+        <div class="composer-footer">
+          <span>DeepSeek · 未连接</span>
+          <button class="send" type="button" disabled>发送 <span aria-hidden="true">↑</span></button>
+        </div>
+      </div>
+      <p id="composer-note" class="composer-note">聊天暂不可用，当前不会发送或保存消息。</p>
+    </section>
+  </main>
+</body>
+</html>

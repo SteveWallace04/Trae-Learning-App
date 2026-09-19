@@ -1,8 +1,9 @@
 # 本地程序
 
-当前只有目录说明，没有 Python 功能代码。
+已实现 main.py：提供首页、web/ 静态文件和 /api/health 接口。运行 python -m app.main 在 127.0.0.1:8000 启动服务。
+目前只支持源码运行；网页文件位于源码仓库 web/，未制作包含资源的独立安装包。
 
-计划模块：
+模块分工（除 main.py 外尚未实现）：
 - main.py：启动 FastAPI、提供网页和接收请求。
 - model.py：调用 DeepSeek，将回答逐段传回。
 - storage.py：读取和保存消息、设置与学习记录。
