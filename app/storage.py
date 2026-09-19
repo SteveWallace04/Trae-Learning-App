@@ -21,6 +21,7 @@ class Message(BaseModel):
     status: Literal["complete", "streaming", "stopped", "interrupted", "error"] = "complete"
     reply_to: UUID | None = None
     error: str = ""
+    context_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 

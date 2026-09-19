@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 import httpx
 
 from app.main import create_app
-from app import model, storage
+from app import context as teaching, model, storage
 
 
 def events(response):
@@ -89,6 +89,7 @@ class ChatTests(unittest.TestCase):
         self.assertEqual(client.post("/api/chat", json={"retry_id": failed["id"]}).status_code, 409)
         client.post("/api/chat", json={"message": "继续"})
         self.assertEqual(calls[-1], [
+            {"role": "system", "content": teaching.BASIC_PROMPT},
             {"role": "user", "content": "解释指针"},
             {"role": "assistant", "content": "完整回答"},
             {"role": "user", "content": "继续"},

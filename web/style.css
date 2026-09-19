@@ -47,6 +47,11 @@ textarea:disabled { cursor: not-allowed; }
 .composer-note { text-align: center; color: #737c72; font-size: 12px; line-height: 1.6; margin: 12px 0 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .header-actions { display: flex; align-items: center; gap: 18px; }
+.header-actions { flex-wrap: wrap; }
+#teaching-dialog { width: min(800px, calc(100vw - 32px)); }
+#teaching-content details { border-top: 1px solid #e3e8df; padding: 12px 0; }
+#teaching-content summary { cursor: pointer; line-height: 1.7; overflow-wrap: anywhere; }
+#teaching-content pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.8 "Segoe UI", "Microsoft YaHei", sans-serif; background: #f7f8f5; padding: 12px; }
 .secondary { padding: 7px 12px; border: 1px solid #d4ddd2; border-radius: 8px; background: #fff; color: #35543c; cursor: pointer; }
 .secondary:disabled { opacity: .5; cursor: not-allowed; }
 .workspace { max-width: 840px; }

@@ -101,6 +101,14 @@ function drawMessage(message) {
     const status = document.createElement("div");
     status.className = "message-status";
     article.append(role, content, status);
+    if (message.role === "assistant" && message.context_id) {
+      const materials = document.createElement("button");
+      materials.type = "button";
+      materials.className = "secondary";
+      materials.textContent = "本次教学材料";
+      materials.addEventListener("click", () => showTeaching(message.id));
+      article.append(materials);
+    }
     messageList.append(article);
     row = {article, content, status};
     rows.set(message.id, row);
@@ -155,6 +163,7 @@ async function initialize() {
   try {
     settings = await (await api("/api/settings")).json();
     await restoreConversation();
+    await refreshTeachingNotice();
     ready = true;
     $(".connection").dataset.state = "ready";
     $("#connection-label").textContent = "本地服务已连接";
@@ -194,6 +203,44 @@ $("#settings-form").addEventListener("submit", async (event) => {
 dialog.addEventListener("close", () => { $("#api-key").value = ""; });
 $("#settings-open").addEventListener("click", openSettings);
 $("#settings-close").addEventListener("click", () => dialog.close());
+
+async function refreshTeachingNotice() {
+  try {
+    const data = await (await api("/api/teaching")).json();
+    $("#teaching-notice").textContent = data.mode === "linked"
+      ? `已接入原项目的 ${data.materials.length} 份材料。发送时将连同聊天交给 DeepSeek；断点目前只读取，不自动更新。`
+      : "尚未连接原项目，当前使用基础聊天提示。可在“教学材料”中查看。";
+  } catch (error) { $("#teaching-notice").textContent = error.message; }
+}
+
+async function showTeaching(messageId = null) {
+  const panel = $("#teaching-dialog");
+  const target = $("#teaching-content");
+  $("#teaching-title").textContent = messageId ? "本次教学材料" : "下一次回答的教学材料";
+  $("#teaching-summary").textContent = "正在读取……";
+  target.replaceChildren();
+  panel.showModal();
+  try {
+    const data = await (await api(messageId ? `/api/messages/${messageId}/context` : "/api/teaching")).json();
+    $("#teaching-summary").textContent = data.mode === "linked"
+      ? `${messageId ? "这是该次请求保存的原文快照，后续修改不会改变它。" : "这是当前原文预览；发送问题时会重新读取。"}来源：${data.source}。共 ${data.materials.length} 份，${data.system_prompt.length.toLocaleString()} 字符（不是 token 数）。材料会发送给 DeepSeek；目前不运行代码，也不更新学习记录。`
+      : "本次使用基础聊天提示，没有接入个人学习材料。";
+    function addSection(title, text) {
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = title;
+      const body = document.createElement("pre");
+      body.textContent = text;
+      details.append(summary, body);
+      target.append(details);
+    }
+    data.materials.forEach((item) => addSection(`${item.title} · ${item.path}`, item.content));
+    addSection("完整教学上下文（含应用能力说明）", data.system_prompt);
+  } catch (error) { $("#teaching-summary").textContent = error.message; }
+}
+
+$("#teaching-open").addEventListener("click", () => showTeaching());
+$("#teaching-close").addEventListener("click", () => $("#teaching-dialog").close());
 
 async function startChat(retryId = null) {
   if (busy || remoteBusy || saveError || !ready || !settings?.configured) return;

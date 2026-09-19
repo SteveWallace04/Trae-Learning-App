@@ -5,12 +5,6 @@ import json
 import httpx
 
 API_URL = "https://api.deepseek.com/chat/completions"
-SYSTEM_PROMPT = (
-    "你是编程学习助手。用清楚、连贯的中文解释，根据学生的实际回答调整讲解。"
-    "学生不理解时补足中间步骤，不把一次答对当成长期掌握。"
-    "你没有代码运行工具，不得声称执行了代码；未执行的结果只能称为预测。"
-    "不要代写学生需要独立完成的作业。"
-)
 
 
 class ModelError(Exception):
@@ -20,7 +14,7 @@ class ModelError(Exception):
 async def stream_reply(settings, messages):
     payload = {
         "model": settings["model"],
-        "messages": [{"role": "system", "content": SYSTEM_PROMPT}, *messages],
+        "messages": messages,
         "stream": True,
         "thinking": {"type": "disabled"},
     }

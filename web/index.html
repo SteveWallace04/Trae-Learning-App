@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Trae-Learning · 个人编程学习</title>
-  <link rel="stylesheet" href="/static/style.css?v=2">
+  <link rel="stylesheet" href="/static/style.css?v=3">
   <script src="/static/vendor/marked.umd.js" defer></script>
   <script src="/static/vendor/purify.min.js" defer></script>
-  <script src="/static/app.js?v=2" defer></script>
+  <script src="/static/app.js?v=3" defer></script>
 </head>
 <body>
   <header class="header">
@@ -20,7 +20,7 @@
       <span class="status-dot" aria-hidden="true"></span>
       <span id="connection-label">正在连接本地服务</span>
       <button id="retry" class="retry" type="button" hidden>重试</button>
-    </div><button id="settings-open" type="button" class="secondary" disabled>设置</button></div>
+    </div><button id="teaching-open" type="button" class="secondary">教学材料</button><button id="settings-open" type="button" class="secondary" disabled>设置</button></div>
   </header>
 
   <main class="workspace">
@@ -34,6 +34,7 @@
       </div>
     </section>
 
+    <p id="teaching-notice" class="field-note" role="status">正在检查教学材料……</p>
     <section id="messages" aria-label="聊天记录"></section>
     <section class="composer-area" aria-label="消息输入">
       <div id="page-alert" role="alert" class="page-alert" hidden></div>
@@ -62,6 +63,11 @@
       <p id="settings-status" role="status"></p>
       <button id="settings-save" type="submit" class="send">保存设置</button>
     </form>
+  </dialog>
+  <dialog id="teaching-dialog" aria-labelledby="teaching-title">
+    <div class="dialog-heading"><h2 id="teaching-title">教学材料</h2><button id="teaching-close" type="button" class="secondary">关闭</button></div>
+    <p id="teaching-summary" class="field-note" role="status"></p>
+    <div id="teaching-content"></div>
   </dialog>
 </body>
 </html>

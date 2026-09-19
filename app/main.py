@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app import model, storage
+from app import context as teaching, model, storage
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = ROOT / "web"
@@ -123,6 +123,23 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
     async def get_conversation():
         return {"conversation": app.state.conversation.model_dump(mode="json"), "active": bool(app.state.active_task), "save_error": app.state.save_error}
 
+    @app.get("/api/teaching")
+    async def preview_teaching():
+        try:
+            return teaching.prepare(root)
+        except teaching.ContextError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+    @app.get("/api/messages/{message_id}/context")
+    async def message_context(message_id: UUID):
+        message = next((item for item in app.state.conversation.messages if item.id == message_id), None)
+        if message is None or not message.context_id:
+            raise HTTPException(404, "这条消息没有教学材料快照；旧回答不会补造记录。")
+        path = root / "data" / "contexts" / f"{message.context_id}.json"
+        if not path.exists():
+            raise HTTPException(404, "这条回答的教学材料快照已不存在。")
+        return json.loads(path.read_text(encoding="utf-8"))
+
     @app.post("/api/conversation/save")
     async def retry_save():
         if app.state.active_task:
@@ -170,7 +187,11 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
             user = storage.Message(role="user", content=text)
         # Only completed turns enter context; incomplete attempts stay visible in history.
         users = {message.id: message for message in conversation.messages if message.role == "user"}
-        context = []
+        try:
+            prepared = teaching.prepare(root)
+        except teaching.ContextError as exc:
+            raise HTTPException(503, str(exc)) from exc
+        context = [{"role": "system", "content": prepared["system_prompt"]}]
         for message in conversation.messages:
             if message.role == "assistant" and message.status == "complete":
                 context.extend([
@@ -178,10 +199,12 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
                     {"role": "assistant", "content": message.content},
                 ])
         context.append({"role": "user", "content": user.content})
+        # Record exactly what this attempt will send, before any paid request.
+        context_id = teaching.save_snapshot(root, prepared)
         previous_count = len(conversation.messages)
         if not body.retry_id:
             conversation.messages.append(user)
-        answer = storage.Message(role="assistant", reply_to=user.id, status="streaming")
+        answer = storage.Message(role="assistant", reply_to=user.id, status="streaming", context_id=context_id)
         conversation.messages.append(answer)
         try:
             storage.save_conversation(root, conversation)
