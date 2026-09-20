@@ -13,6 +13,9 @@ let ready = false;
 let saveError = false;
 let activeReply = null;
 let stopping = false;
+let conversationId = null;
+let switching = false;
+const drafts = new Map();
 
 async function api(path, body) {
   const response = await fetch(path, {
@@ -35,18 +38,24 @@ function alertUser(text = "") {
 }
 
 function controls() {
-  input.disabled = !ready || !settings?.configured || busy || remoteBusy || saveError;
+  input.disabled = !ready || !settings?.configured || busy || remoteBusy || saveError || switching;
   send.textContent = busy ? (stopping ? "正在停止…" : "停止") : "发送 ↑";
   send.disabled = busy ? (!activeReply || stopping) : (input.disabled || !input.value.trim());
-  $("#settings-open").disabled = !ready || busy || remoteBusy;
+  $("#settings-open").disabled = !ready || busy || remoteBusy || switching;
+  $("#conversation-new").disabled = !ready || busy || remoteBusy || saveError || switching;
+  document.querySelectorAll(".conversation-item").forEach((button) => {
+    button.disabled = !ready || busy || remoteBusy || saveError || switching;
+    button.setAttribute("aria-current", String(button.dataset.id === conversationId));
+  });
   $("#save-retry").hidden = !saveError;
-  $("#save-retry").disabled = busy || remoteBusy;
+  $("#save-retry").disabled = busy || remoteBusy || switching;
+  $("#restore").disabled = switching || busy;
   $("#restore").hidden = !remoteBusy && ready;
   $("#model-notice").hidden = Boolean(settings?.configured);
   $("#model-label").textContent = settings?.configured ? settings.model : "DeepSeek · 未配置";
   $("#welcome-title").closest("section").hidden = messages.length > 0;
   document.querySelectorAll(".retry-answer").forEach((button) => {
-    button.disabled = !ready || busy || remoteBusy || saveError || !settings?.configured;
+    button.disabled = !ready || busy || remoteBusy || saveError || switching || !settings?.configured;
   });
 }
 
@@ -140,9 +149,16 @@ function upsertMessage(message) {
   drawMessage(message);
 }
 
-async function restoreConversation() {
-  const data = await (await api("/api/conversation")).json();
+function displayConversation(data) {
+  if (conversationId !== data.conversation.id) {
+    if (conversationId) drafts.set(conversationId, input.value);
+    conversationId = data.conversation.id;
+    input.value = drafts.get(conversationId) || "";
+    input.style.height = "";
+  }
   messages = data.conversation.messages;
+  const title = messages.find((m) => m.role === "user")?.content.replace(/\s+/g, " ").trim().slice(0, 48) || "新对话";
+  $("#conversation-title").textContent = title;
   remoteBusy = data.active;
   saveError = data.save_error;
   rows.clear();
@@ -154,6 +170,48 @@ async function restoreConversation() {
     : remoteBusy ? "有回答正在生成，请稍后重新读取聊天。"
     : messages.length ? "聊天已保存在本机 · Enter 发送，Shift+Enter 换行" : "发送后自动保存聊天 · Enter 发送，Shift+Enter 换行";
 }
+
+async function refreshConversations() {
+  const data = await (await api("/api/conversations")).json();
+  $("#conversation-list").replaceChildren(...data.conversations.map((item) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "conversation-item";
+    button.dataset.id = item.id;
+    button.textContent = item.title;
+    button.title = item.title;
+    button.addEventListener("click", () => changeConversation(item.id));
+    return button;
+  }));
+  controls();
+}
+
+async function restoreConversation() {
+  displayConversation(await (await api("/api/conversation")).json());
+  await refreshConversations();
+}
+
+async function changeConversation(id = null) {
+  if (!ready || busy || remoteBusy || saveError || switching || id === conversationId) return;
+  switching = true;
+  controls();
+  alertUser();
+  try {
+    const path = id ? `/api/conversations/${id}/select` : "/api/conversations";
+    displayConversation(await (await api(path, {conversation_id: conversationId})).json());
+    await refreshConversations();
+    scrollIfFollowing(true);
+  } catch (error) {
+    try { await restoreConversation(); }
+    catch { ready = false; $("#retry").hidden = false; }
+    alertUser(error.message);
+  } finally {
+    switching = false;
+    controls();
+    if (!input.disabled) input.focus();
+  }
+}
+$("#conversation-new").addEventListener("click", () => changeConversation());
 
 async function initialize() {
   ready = false;
@@ -243,10 +301,11 @@ $("#teaching-open").addEventListener("click", () => showTeaching());
 $("#teaching-close").addEventListener("click", () => $("#teaching-dialog").close());
 
 async function startChat(retryId = null) {
-  if (busy || remoteBusy || saveError || !ready || !settings?.configured) return;
+  if (busy || remoteBusy || saveError || switching || !ready || !settings?.configured) return;
   const text = input.value.trim();
   if (!retryId && !text) return;
   const previousIds = new Set(messages.map((message) => message.id));
+  const requestConversationId = conversationId;
   busy = true;
   activeReply = null;
   stopping = false;
@@ -255,7 +314,7 @@ async function startChat(retryId = null) {
   alertUser();
   controls();
   try {
-    const response = await api("/api/chat", retryId ? {retry_id: retryId} : {message: text});
+    const response = await api("/api/chat", {conversation_id: conversationId, ...(retryId ? {retry_id: retryId} : {message: text})});
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -263,9 +322,10 @@ async function startChat(retryId = null) {
       const follow = isAtBottom();
       if (event.type === "start") {
         accepted = true;
-        if (!retryId) { input.value = ""; input.style.height = ""; }
+        if (!retryId) { input.value = ""; drafts.delete(conversationId); input.style.height = ""; }
         upsertMessage(event.user);
         upsertMessage(event.message);
+        $("#conversation-title").textContent = messages.find((m) => m.role === "user").content.replace(/\s+/g, " ").trim().slice(0, 48);
         activeReply = event.message.id;
         $("#composer-note").textContent = "问题已保存，正在生成回答…";
       } else if (event.type === "delta") {
@@ -304,12 +364,14 @@ async function startChat(retryId = null) {
     // Restore server truth before another send; request acceptance may be uncertain.
     try {
       await restoreConversation();
-      if (!retryId && !accepted && messages.some((message) => !previousIds.has(message.id) && message.role === "user" && message.content === text)) {
+      if (conversationId === requestConversationId && !retryId && !accepted && messages.some((message) => !previousIds.has(message.id) && message.role === "user" && message.content === text)) {
         input.value = "";
       }
     } catch { ready = false; $("#retry").hidden = false; }
     alertUser(error.message || "连接中断，请检查记录后重试。");
   } finally {
+    try { await refreshConversations(); }
+    catch { alertUser("无法更新历史对话列表，请重新读取聊天。"); }
     busy = false;
     stopping = false;
     activeReply = null;
@@ -349,7 +411,7 @@ $("#retry").addEventListener("click", initialize);
 $("#restore").addEventListener("click", initialize);
 $("#save-retry").addEventListener("click", async () => {
   try {
-    await api("/api/conversation/save", {});
+    await api("/api/conversation/save", {conversation_id: conversationId});
     await restoreConversation();
     alertUser();
   } catch (error) { alertUser(error.message); }

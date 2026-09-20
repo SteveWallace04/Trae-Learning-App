@@ -41,7 +41,7 @@ class ContextTests(unittest.TestCase):
             with TestClient(create_app(self.root)) as client:
                 preview = client.get("/api/teaching").json()
                 self.assertFalse((self.root / "data/contexts").exists())
-                result = client.post("/api/chat", json={"message": "继续"})
+                result = client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "message": "继续"})
                 self.assertEqual(result.status_code, 200)
                 answer = json.loads(result.text.splitlines()[-1])["message"]
                 snapshot = client.get(f"/api/messages/{answer['id']}/context").json()
@@ -65,11 +65,11 @@ class ContextTests(unittest.TestCase):
             raise model.ModelError("合成错误")
             yield
         with TestClient(create_app(self.root, fail)) as client:
-            first = client.post("/api/chat", json={"message": "继续"})
+            first = client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "message": "继续"})
             answer = json.loads(first.text.splitlines()[-1])["message"]
             old = client.get(f"/api/messages/{answer['id']}/context").json()
             (self.source / "progress/status.md").write_text("新的合成断点", encoding="utf-8")
-            second = client.post("/api/chat", json={"retry_id": answer["id"]})
+            second = client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "retry_id": answer["id"]})
             retried = json.loads(second.text.splitlines()[-1])["message"]
             new = client.get(f"/api/messages/{retried['id']}/context").json()
             self.assertNotEqual(answer["context_id"], retried["context_id"])
@@ -92,9 +92,9 @@ class ContextTests(unittest.TestCase):
                     else:
                         path.write_bytes(data)
                     self.assertEqual(client.get("/api/teaching").status_code, 503)
-                    self.assertEqual(client.post("/api/chat", json={"message": "继续"}).status_code, 503)
+                    self.assertEqual(client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "message": "继续"}).status_code, 503)
             (self.root / "data/learning-source.json").write_text("not json")
-            self.assertEqual(client.post("/api/chat", json={"message": "继续"}).status_code, 503)
+            self.assertEqual(client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "message": "继续"}).status_code, 503)
             self.assertEqual(client.get("/api/conversation").json()["conversation"]["messages"], [])
             self.assertEqual(calls, [])
 
@@ -105,7 +105,7 @@ class ContextTests(unittest.TestCase):
             yield "不应调用"
         with TestClient(create_app(self.root, track)) as client:
             with patch("app.context.atomic_write", side_effect=OSError("disk full")):
-                self.assertEqual(client.post("/api/chat", json={"message": "继续"}).status_code, 503)
+                self.assertEqual(client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "message": "继续"}).status_code, 503)
             self.assertEqual(calls, [])
             self.assertEqual(client.get("/api/conversation").json()["conversation"]["messages"], [])
 

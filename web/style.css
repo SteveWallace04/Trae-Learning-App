@@ -48,6 +48,22 @@ textarea:disabled { cursor: not-allowed; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .header-actions { display: flex; align-items: center; gap: 18px; }
 .header-actions { flex-wrap: wrap; }
+.app-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); max-width: 1200px; margin: auto; }
+.app-layout .workspace { width: 100%; min-width: 0; }
+.conversation-sidebar { position: sticky; top: 16px; align-self: start; padding: 24px 16px; }
+.conversation-sidebar h2 { font-size: 13px; font-weight: 500; color: #63705f; margin: 24px 0 10px; }
+#conversation-new { width: 100%; }
+#conversation-list { display: flex; flex-direction: column; gap: 6px; max-height: 55vh; overflow-y: auto; }
+.conversation-item { text-align: left; border: 0; border-radius: 8px; padding: 10px; background: transparent; color: #35543c; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; font-size: 13px; }
+.conversation-item[aria-current="true"] { background: #e5ecdf; font-weight: 600; }
+.conversation-item:disabled { cursor: default; opacity: .6; }
+.conversation-title { font-size: 18px; font-weight: 500; margin: 24px 0 0; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .app-layout { grid-template-columns: minmax(0, 1fr); }
+  .conversation-sidebar { position: static; padding: 16px 20px 0; }
+  #conversation-list { max-height: 140px; }
+  .app-layout .workspace { min-height: 60dvh; }
+}
 #teaching-dialog { width: min(800px, calc(100vw - 32px)); }
 #teaching-content details { border-top: 1px solid #e3e8df; padding: 12px 0; }
 #teaching-content summary { cursor: pointer; line-height: 1.7; overflow-wrap: anywhere; }

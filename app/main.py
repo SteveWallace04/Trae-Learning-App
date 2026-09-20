@@ -38,23 +38,31 @@ class SettingsInput(BaseModel):
 
 
 class ChatInput(BaseModel):
+    conversation_id: UUID
     message: str = Field(default="", max_length=100_000)
     retry_id: UUID | None = None
 
 
+class ConversationInput(BaseModel):
+    conversation_id: UUID
+
+
 def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
-    # Injectable root and model call keep tests away from personal files and paid APIs.
-    @asynccontextmanager
-    async def lifespan(app):
-        app.state.conversation = storage.load_conversation(root)
-        recovered = False
-        for message in app.state.conversation.messages:
+    def recover(conversation):
+        changed = False
+        for message in conversation.messages:
             if message.status == "streaming":
                 message.status = "interrupted"
                 message.error = "程序上次意外中断，回答未完成。"
-                recovered = True
-        if recovered:
-            storage.save_conversation(root, app.state.conversation)
+                changed = True
+        if changed:
+            storage.save_conversation(root, conversation)
+        return conversation
+
+    # Injectable root and model call keep tests away from personal files and paid APIs.
+    @asynccontextmanager
+    async def lifespan(app):
+        app.state.conversation = recover(storage.load_conversation(root))
         yield
         task = app.state.active_task
         if task:
@@ -101,6 +109,20 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
             app.state.save_error = True
             return False
 
+    def require_current(conversation_id):
+        if conversation_id != app.state.conversation.id:
+            raise HTTPException(409, "其他窗口已切换对话，请重新读取聊天后再操作。")
+
+    def require_switchable(conversation_id):
+        require_current(conversation_id)
+        if app.state.active_task:
+            raise HTTPException(409, "请先停止当前回答，再新建或切换对话。")
+        if app.state.save_error:
+            raise HTTPException(503, "当前记录尚未保存，请先重试保存，再切换对话。")
+
+    def conversation_view():
+        return {"conversation": app.state.conversation.model_dump(mode="json"), "active": bool(app.state.active_task), "save_error": app.state.save_error}
+
     @app.get("/api/health")
     async def health():
         return {"status": "ok", "app": "trae-learning"}
@@ -121,7 +143,40 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
 
     @app.get("/api/conversation")
     async def get_conversation():
-        return {"conversation": app.state.conversation.model_dump(mode="json"), "active": bool(app.state.active_task), "save_error": app.state.save_error}
+        return conversation_view()
+
+    @app.get("/api/conversations")
+    async def conversations():
+        return {"conversations": storage.list_conversations(root, app.state.conversation)}
+
+    @app.post("/api/conversations")
+    async def new_conversation(body: ConversationInput):
+        require_switchable(body.conversation_id)
+        if not app.state.conversation.messages:
+            storage.save_conversation(root, app.state.conversation)
+            storage.select_conversation(root, app.state.conversation.id)
+            return conversation_view()
+        # Preserve the previous selection even if creating/selecting the new file fails.
+        storage.select_conversation(root, app.state.conversation.id)
+        conversation = storage.Conversation()
+        storage.save_conversation(root, conversation)
+        storage.select_conversation(root, conversation.id)
+        app.state.conversation = conversation
+        return conversation_view()
+
+    @app.post("/api/conversations/{conversation_id}/select")
+    async def select_conversation(conversation_id: UUID, body: ConversationInput):
+        require_switchable(body.conversation_id)
+        if conversation_id == app.state.conversation.id:
+            return conversation_view()
+        try:
+            conversation = storage.load_conversation(root, conversation_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "找不到这段对话，请刷新列表。") from exc
+        conversation = recover(conversation)
+        storage.select_conversation(root, conversation.id)
+        app.state.conversation = conversation
+        return conversation_view()
 
     @app.get("/api/teaching")
     async def preview_teaching():
@@ -141,7 +196,8 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
         return json.loads(path.read_text(encoding="utf-8"))
 
     @app.post("/api/conversation/save")
-    async def retry_save():
+    async def retry_save(body: ConversationInput):
+        require_current(body.conversation_id)
         if app.state.active_task:
             raise HTTPException(409, "请先停止生成，再重试保存。")
         if not persist():
@@ -161,6 +217,7 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
 
     @app.post("/api/chat")
     async def chat(body: ChatInput, request: Request):
+        require_current(body.conversation_id)
         if app.state.active_task:
             raise HTTPException(409, "已有回答正在生成，请勿在多个窗口同时发送。")
         if app.state.save_error:

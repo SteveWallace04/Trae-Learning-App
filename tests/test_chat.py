@@ -51,13 +51,13 @@ class ChatTests(unittest.TestCase):
     def test_missing_key_does_not_save_or_call_model(self):
         (self.root / ".env").unlink()
         client = self.client()
-        response = client.post("/api/chat", json={"message": "问题"})
+        response = client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "message": "问题"})
         self.assertEqual(response.status_code, 400)
         self.assertFalse((self.root / "data").exists())
 
     def test_chat_is_saved_and_restored_by_a_new_app(self):
         with TestClient(create_app(self.root, success)) as client:
-            result = events(client.post("/api/chat", json={"message": "什么是指针？"}))
+            result = events(client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "message": "什么是指针？"}))
             self.assertEqual(result[-1]["message"]["content"], "这是回答。")
             self.assertTrue(result[-1]["saved"])
         with TestClient(create_app(self.root, success)) as restarted:
@@ -77,17 +77,17 @@ class ChatTests(unittest.TestCase):
                 raise model.ModelError("模拟网络错误")
             yield "完整回答"
         client = self.client(fail_once)
-        first = events(client.post("/api/chat", json={"message": "解释指针"}))
+        first = events(client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "message": "解释指针"}))
         failed = first[-1]["message"]
         self.assertEqual(failed["status"], "error")
-        second = events(client.post("/api/chat", json={"retry_id": failed["id"]}))
+        second = events(client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "retry_id": failed["id"]}))
         self.assertEqual(second[-1]["message"]["status"], "complete")
         self.assertEqual(calls[0], calls[1])
         messages = client.get("/api/conversation").json()["conversation"]["messages"]
         self.assertEqual(sum(m["role"] == "user" for m in messages), 1)
         self.assertEqual(len(messages), 3)
-        self.assertEqual(client.post("/api/chat", json={"retry_id": failed["id"]}).status_code, 409)
-        client.post("/api/chat", json={"message": "继续"})
+        self.assertEqual(client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "retry_id": failed["id"]}).status_code, 409)
+        client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "message": "继续"})
         self.assertEqual(calls[-1], [
             {"role": "system", "content": teaching.BASIC_PROMPT},
             {"role": "user", "content": "解释指针"},
@@ -102,7 +102,7 @@ class ChatTests(unittest.TestCase):
             yield "不应执行"
         client = self.client(track)
         with patch("app.storage.save_conversation", side_effect=OSError("disk full")):
-            response = client.post("/api/chat", json={"message": "问题"})
+            response = client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "message": "问题"})
         self.assertEqual(response.status_code, 503)
         self.assertEqual(called, [])
         self.assertEqual(client.get("/api/conversation").json()["conversation"]["messages"], [])
@@ -118,10 +118,10 @@ class ChatTests(unittest.TestCase):
                 raise OSError("disk full")
             return real_save(*args)
         with patch("app.storage.save_conversation", side_effect=fail_second):
-            result = events(client.post("/api/chat", json={"message": "问题"}))
+            result = events(client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "message": "问题"}))
         self.assertFalse(result[-1]["saved"])
-        self.assertEqual(client.post("/api/chat", json={"message": "下一个"}).status_code, 503)
-        self.assertEqual(client.post("/api/conversation/save").status_code, 200)
+        self.assertEqual(client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "message": "下一个"}).status_code, 503)
+        self.assertEqual(client.post("/api/conversation/save", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"]}).status_code, 200)
         self.assertFalse(client.get("/api/conversation").json()["save_error"])
         self.assertEqual(storage.load_conversation(self.root).messages[-1].content, "这是回答。")
 
@@ -133,11 +133,11 @@ class ChatTests(unittest.TestCase):
             await asyncio.Event().wait()
         client = self.client(slow)
         with ThreadPoolExecutor() as executor:
-            future = executor.submit(client.post, "/api/chat", json={"message": "测试停止"})
+            future = executor.submit(client.post, "/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "message": "测试停止"})
             self.assertTrue(started.wait(timeout=5))
             state = client.get("/api/conversation").json()
             self.assertTrue(state["active"])
-            self.assertEqual(client.post("/api/chat", json={"message": "重复"}).status_code, 409)
+            self.assertEqual(client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "message": "重复"}).status_code, 409)
             self.assertEqual(client.post("/api/settings", json={"model": "deepseek-flash"}).status_code, 409)
             reply_id = state["conversation"]["messages"][-1]["id"]
             response = client.post("/api/chat/stop", json={"reply_id": reply_id})
@@ -157,7 +157,7 @@ class ChatTests(unittest.TestCase):
 
     def test_foreign_site_and_host_cannot_trigger_calls(self):
         client = self.client()
-        response = client.post("/api/chat", json={"message": "问题"}, headers={"Origin": "https://other.example"})
+        response = client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "message": "问题"}, headers={"Origin": "https://other.example"})
         self.assertEqual(response.status_code, 403)
         self.assertEqual(client.get("/api/settings", headers={"Host": "other.example"}).status_code, 400)
         self.assertEqual(client.post("/api/settings", json={"model": "deepseek-flash"}, headers={"Origin": "http://testserver"}).status_code, 200)

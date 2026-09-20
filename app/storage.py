@@ -56,12 +56,41 @@ def save_settings(root: Path, api_key: str, model: str):
     atomic_write(root / ".env", f"DEEPSEEK_API_KEY={api_key}\nDEEPSEEK_MODEL={model}\n")
 
 
-def load_conversation(root: Path):
+def load_conversation(root: Path, conversation_id: UUID | None = None):
+    if conversation_id is not None:
+        path = root / "data/conversations" / f"session-{conversation_id}.json"
+        conversation = Conversation.model_validate_json(path.read_text(encoding="utf-8"))
+        if conversation.id != conversation_id:
+            raise ValueError("Conversation filename and id differ")
+        return conversation
+    selected = root / "data/current-conversation.json"
+    if selected.exists():
+        return load_conversation(root, UUID(json.loads(selected.read_text(encoding="utf-8"))["id"]))
     files = list((root / "data" / "conversations").glob("session-*.json"))
     if not files:
         return Conversation()
     latest = max(files, key=lambda path: path.stat().st_mtime_ns)
     return Conversation.model_validate_json(latest.read_text(encoding="utf-8"))
+
+
+def select_conversation(root: Path, conversation_id: UUID):
+    atomic_write(root / "data/current-conversation.json", json.dumps({"id": str(conversation_id)}) + "\n")
+
+
+def conversation_title(conversation: Conversation):
+    first = next((m.content for m in conversation.messages if m.role == "user"), "")
+    return " ".join(first.split())[:48] or "新对话"
+
+
+def list_conversations(root: Path, current: Conversation):
+    items = []
+    for path in sorted((root / "data/conversations").glob("session-*.json"), key=lambda p: p.stat().st_mtime_ns, reverse=True):
+        saved = Conversation.model_validate_json(path.read_text(encoding="utf-8"))
+        conversation = current if saved.id == current.id else saved
+        items.append({"id": str(conversation.id), "title": conversation_title(conversation)})
+    if not any(item["id"] == str(current.id) for item in items):
+        items.insert(0, {"id": str(current.id), "title": conversation_title(current)})
+    return items
 
 
 def save_conversation(root: Path, conversation: Conversation):

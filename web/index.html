@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Trae-Learning · 个人编程学习</title>
-  <link rel="stylesheet" href="/static/style.css?v=3">
+  <link rel="stylesheet" href="/static/style.css?v=4">
   <script src="/static/vendor/marked.umd.js" defer></script>
   <script src="/static/vendor/purify.min.js" defer></script>
-  <script src="/static/app.js?v=3" defer></script>
+  <script src="/static/app.js?v=4" defer></script>
 </head>
 <body>
   <header class="header">
@@ -23,7 +23,15 @@
     </div><button id="teaching-open" type="button" class="secondary">教学材料</button><button id="settings-open" type="button" class="secondary" disabled>设置</button></div>
   </header>
 
+  <div class="app-layout">
+  <aside class="conversation-sidebar" aria-label="对话管理">
+    <button id="conversation-new" class="secondary" type="button" disabled>＋ 新建对话</button>
+    <h2>历史对话</h2>
+    <nav id="conversation-list" aria-label="历史对话"></nav>
+    <p class="field-note">新对话保留个人学习材料，不带入其他聊天。</p>
+  </aside>
   <main class="workspace">
+    <h2 id="conversation-title" class="conversation-title">新对话</h2>
     <section class="welcome" aria-labelledby="welcome-title">
       <p class="eyebrow">个人 AI 编程学习</p>
       <h1 id="welcome-title">从一个你想弄懂的<br>问题开始。</h1>
@@ -51,6 +59,7 @@
       <p id="composer-note" class="composer-note" role="status">正在读取本地记录……</p>
     </section>
   </main>
+  </div>
   <dialog id="settings-dialog" aria-labelledby="settings-title">
     <form id="settings-form">
       <div class="dialog-heading"><h2 id="settings-title">DeepSeek 设置</h2><button id="settings-close" type="button" class="secondary" aria-label="关闭设置">关闭</button></div>

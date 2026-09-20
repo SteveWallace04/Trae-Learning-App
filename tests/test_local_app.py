@@ -77,7 +77,7 @@ uvicorn.run(create_app(root, slow), host='127.0.0.1', port=int(sys.argv[2]))
 
     def test_disconnecting_browser_stops_generation_and_saves_partial_text(self):
         with httpx.Client() as client:
-            with client.stream("POST", self.base_url + "/api/chat", json={"message": "disconnect test"}) as response:
+            with client.stream("POST", self.base_url + "/api/chat", json={"conversation_id": client.get(self.base_url + "/api/conversation").json()["conversation"]["id"], "message": "disconnect test"}) as response:
                 lines = response.iter_lines()
                 self.assertEqual(json.loads(next(lines))["type"], "start")
                 self.assertEqual(json.loads(next(lines))["type"], "delta")
