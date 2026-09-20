@@ -58,6 +58,17 @@ textarea:disabled { cursor: not-allowed; }
 .conversation-item[aria-current="true"] { background: #e5ecdf; font-weight: 600; }
 .conversation-item:disabled { cursor: default; opacity: .6; }
 .conversation-title { font-size: 18px; font-weight: 500; margin: 24px 0 0; overflow-wrap: anywhere; }
+.conversation-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 24px; }
+.conversation-heading .conversation-title { margin: 0; }
+.conversation-heading button { flex-shrink: 0; }
+#breakpoint-dialog { width: min(800px, calc(100vw - 32px)); }
+#breakpoint-dialog h3 { font-size: 15px; font-weight: 500; }
+#breakpoint-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.8 "Segoe UI", "Microsoft YaHei", sans-serif; background: #f7f8f5; padding: 14px; border-radius: 8px; }
+#breakpoint-dialog summary { cursor: pointer; font-size: 13px; }
+#breakpoint-editor { border: 1px solid #becbbd; border-radius: 8px; padding: 12px; min-height: 240px; max-height: 50vh; resize: vertical; }
+#breakpoint-editor:focus-visible { outline: 2px solid #527d63; }
+.breakpoint-actions { display: flex; gap: 12px; margin: 20px 0; }
+#breakpoint-status { color: #795239; white-space: pre-wrap; }
 @media (max-width: 760px) {
   .app-layout { grid-template-columns: minmax(0, 1fr); }
   .conversation-sidebar { position: static; padding: 16px 20px 0; }

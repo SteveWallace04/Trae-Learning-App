@@ -16,13 +16,19 @@ let stopping = false;
 let conversationId = null;
 let switching = false;
 const drafts = new Map();
+let breakpointBusy = false;
+let breakpointSaving = false;
+let breakpointDraft = null;
+let savedBreakpoint = null;
+let breakpointController = null;
 
-async function api(path, body) {
+async function api(path, body, signal) {
   const response = await fetch(path, {
     method: body === undefined ? "GET" : "POST",
     headers: body === undefined ? {} : {"Content-Type": "application/json"},
     body: body === undefined ? undefined : JSON.stringify(body),
     cache: "no-store",
+    signal,
   });
   if (!response.ok) {
     let detail = "本地请求失败，请重新连接。";
@@ -38,25 +44,33 @@ function alertUser(text = "") {
 }
 
 function controls() {
-  input.disabled = !ready || !settings?.configured || busy || remoteBusy || saveError || switching;
+  const recording = breakpointBusy || breakpointSaving;
+  input.disabled = !ready || !settings?.configured || busy || remoteBusy || saveError || switching || recording;
   send.textContent = busy ? (stopping ? "正在停止…" : "停止") : "发送 ↑";
   send.disabled = busy ? (!activeReply || stopping) : (input.disabled || !input.value.trim());
-  $("#settings-open").disabled = !ready || busy || remoteBusy || switching;
-  $("#conversation-new").disabled = !ready || busy || remoteBusy || saveError || switching;
+  $("#settings-open").disabled = !ready || busy || remoteBusy || switching || recording;
+  $("#conversation-new").disabled = !ready || busy || remoteBusy || saveError || switching || recording;
   document.querySelectorAll(".conversation-item").forEach((button) => {
-    button.disabled = !ready || busy || remoteBusy || saveError || switching;
+    button.disabled = !ready || busy || remoteBusy || saveError || switching || recording;
     button.setAttribute("aria-current", String(button.dataset.id === conversationId));
   });
   $("#save-retry").hidden = !saveError;
-  $("#save-retry").disabled = busy || remoteBusy || switching;
-  $("#restore").disabled = switching || busy;
+  $("#save-retry").disabled = busy || remoteBusy || switching || recording;
+  $("#restore").disabled = switching || busy || recording;
   $("#restore").hidden = !remoteBusy && ready;
   $("#model-notice").hidden = Boolean(settings?.configured);
   $("#model-label").textContent = settings?.configured ? settings.model : "DeepSeek · 未配置";
   $("#welcome-title").closest("section").hidden = messages.length > 0;
   document.querySelectorAll(".retry-answer").forEach((button) => {
-    button.disabled = !ready || busy || remoteBusy || saveError || switching || !settings?.configured;
+    button.disabled = !ready || busy || remoteBusy || saveError || switching || recording || !settings?.configured;
   });
+  $("#breakpoint-open").disabled = !ready || switching;
+  $("#breakpoint-generate").disabled = !ready || busy || remoteBusy || saveError || switching || recording || !settings?.configured || !messages.length;
+  $("#breakpoint-generate").textContent = breakpointBusy ? "正在整理…" : breakpointDraft ? "重新整理（替换草稿）" : "整理学习断点";
+  $("#breakpoint-cancel").hidden = !breakpointBusy;
+  $("#breakpoint-save").disabled = !breakpointDraft || breakpointDraft.conversation_id !== conversationId || !$("#breakpoint-editor").value.trim() || busy || remoteBusy || saveError || recording || !ready;
+  $("#breakpoint-editor").disabled = recording;
+  $("#breakpoint-close").disabled = breakpointSaving;
 }
 
 function isAtBottom() {
@@ -167,7 +181,7 @@ function displayConversation(data) {
   updateRetryButtons();
   $("#composer-note").textContent = saveError
     ? "有记录尚未写入文件，请保留此页面并重试保存。"
-    : remoteBusy ? "有回答正在生成，请稍后重新读取聊天。"
+    : remoteBusy ? (data.activity === "breakpoint" ? "正在整理学习断点，请稍后重新读取聊天。" : "有回答正在生成，请稍后重新读取聊天。")
     : messages.length ? "聊天已保存在本机 · Enter 发送，Shift+Enter 换行" : "发送后自动保存聊天 · Enter 发送，Shift+Enter 换行";
 }
 
@@ -192,7 +206,7 @@ async function restoreConversation() {
 }
 
 async function changeConversation(id = null) {
-  if (!ready || busy || remoteBusy || saveError || switching || id === conversationId) return;
+  if (!ready || busy || remoteBusy || saveError || switching || breakpointBusy || breakpointSaving || id === conversationId) return;
   switching = true;
   controls();
   alertUser();
@@ -301,7 +315,7 @@ $("#teaching-open").addEventListener("click", () => showTeaching());
 $("#teaching-close").addEventListener("click", () => $("#teaching-dialog").close());
 
 async function startChat(retryId = null) {
-  if (busy || remoteBusy || saveError || switching || !ready || !settings?.configured) return;
+  if (busy || remoteBusy || saveError || switching || breakpointBusy || breakpointSaving || !ready || !settings?.configured) return;
   const text = input.value.trim();
   if (!retryId && !text) return;
   const previousIds = new Set(messages.map((message) => message.id));
@@ -416,5 +430,98 @@ $("#save-retry").addEventListener("click", async () => {
     alertUser();
   } catch (error) { alertUser(error.message); }
   controls();
+});
+function breakpointLocation(record) {
+  return `来源：${record.conversation_title} · 整理至第 ${record.message_count} 条消息`;
+}
+
+function showSavedBreakpoint(data) {
+  savedBreakpoint = data.record;
+  $("#breakpoint-saved").textContent = data.record?.content || "应用内还没有保存的断点。第一次整理将参考原项目断点（若已接入）。";
+  $("#breakpoint-meta").textContent = data.record
+    ? `${breakpointLocation(data.record)} · 保存于 ${new Date(data.record.saved_at).toLocaleString()}。${data.new_messages === null ? "当前查看的是另一段对话。" : data.new_messages > 0 ? `之后还有 ${data.new_messages} 条新消息未整理。` : "该对话暂无后续消息。"}`
+    : "";
+  $("#breakpoint-source").hidden = !data.record;
+  $("#breakpoint-source").open = false;
+  $("#breakpoint-source-content").replaceChildren();
+}
+
+$("#breakpoint-open").addEventListener("click", async () => {
+  $("#breakpoint-dialog").showModal();
+  $("#breakpoint-status").textContent = "正在读取已保存断点……";
+  try {
+    showSavedBreakpoint(await (await api("/api/breakpoint")).json());
+    $("#breakpoint-status").textContent = breakpointBusy ? "正在整理，旧断点不会自动改变。" : "";
+  } catch (error) { $("#breakpoint-status").textContent = error.message; }
+  controls();
+});
+$("#breakpoint-close").addEventListener("click", () => $("#breakpoint-dialog").close());
+$("#breakpoint-dialog").addEventListener("cancel", (event) => { if (breakpointSaving) event.preventDefault(); });
+$("#breakpoint-editor").addEventListener("input", controls);
+$("#breakpoint-cancel").addEventListener("click", async () => {
+  try {
+    await api("/api/breakpoint/cancel", {conversation_id: conversationId});
+    breakpointController?.abort();
+  } catch (error) { $("#breakpoint-status").textContent = error.message; }
+});
+
+$("#breakpoint-generate").addEventListener("click", async () => {
+  if ($("#breakpoint-generate").disabled) return;
+  breakpointBusy = true;
+  breakpointController = new AbortController();
+  controls();
+  $("#breakpoint-status").textContent = "正在整理当前对话，请稍候。完成后先核对草稿，再保存。";
+  try {
+    const draft = await (await api("/api/breakpoint/draft", {conversation_id: conversationId}, breakpointController.signal)).json();
+    breakpointDraft = draft;
+    $("#breakpoint-draft-area").hidden = false;
+    $("#breakpoint-editor").value = draft.content;
+    $("#breakpoint-draft-meta").textContent = breakpointLocation(draft);
+    $("#breakpoint-status").textContent = "草稿已生成，尚未保存。请核对实际理解和证据，修改后点击保存。";
+  } catch (error) {
+    $("#breakpoint-status").textContent = error.name === "AbortError" ? "已取消整理，已保存断点未改变。" : error.message;
+  } finally {
+    breakpointBusy = false;
+    breakpointController = null;
+    try { await restoreConversation(); }
+    catch { ready = false; $("#retry").hidden = false; }
+    controls();
+  }
+});
+
+$("#breakpoint-save").addEventListener("click", async () => {
+  if ($("#breakpoint-save").disabled) return;
+  breakpointSaving = true;
+  controls();
+  $("#breakpoint-status").textContent = "正在保存……";
+  try {
+    const record = await (await api("/api/breakpoint", {conversation_id: conversationId, draft_id: breakpointDraft.id, content: $("#breakpoint-editor").value})).json();
+    showSavedBreakpoint({record, new_messages: 0});
+    breakpointDraft = null;
+    $("#breakpoint-draft-area").hidden = true;
+    $("#breakpoint-status").textContent = "断点已保存在本机。关闭程序后仍可查看。";
+  } catch (error) {
+    $("#breakpoint-status").textContent = `${error.message} 编辑内容仍保留在下方；请勿刷新页面，可核对已保存记录后重试。`;
+  } finally {
+    breakpointSaving = false;
+    controls();
+  }
+});
+
+$("#breakpoint-source").addEventListener("toggle", async () => {
+  if (!$("#breakpoint-source").open || !savedBreakpoint) return;
+  const target = $("#breakpoint-source-content");
+  target.textContent = "正在读取来源聊天……";
+  const expected = savedBreakpoint.id;
+  try {
+    const data = await (await api("/api/breakpoint/source")).json();
+    if (data.record_id !== expected) throw new Error("已保存断点发生变化，请重新打开面板查看。");
+    target.replaceChildren(...data.messages.map((message, i) => {
+      const pre = document.createElement("pre");
+      const status = {complete: "完整", stopped: "已停止", error: "失败", interrupted: "中断", streaming: "生成中"}[message.status];
+      pre.textContent = `消息 ${i + 1} · ${message.role === "user" ? "你" : "AI"} · ${status}\n${message.content}`;
+      return pre;
+    }));
+  } catch (error) { target.textContent = error.message; }
 });
 initialize();

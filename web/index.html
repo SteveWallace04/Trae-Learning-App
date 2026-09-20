@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Trae-Learning · 个人编程学习</title>
-  <link rel="stylesheet" href="/static/style.css?v=4">
+  <link rel="stylesheet" href="/static/style.css?v=5">
   <script src="/static/vendor/marked.umd.js" defer></script>
   <script src="/static/vendor/purify.min.js" defer></script>
-  <script src="/static/app.js?v=4" defer></script>
+  <script src="/static/app.js?v=5" defer></script>
 </head>
 <body>
   <header class="header">
@@ -31,7 +31,10 @@
     <p class="field-note">新对话保留个人学习材料，不带入其他聊天。</p>
   </aside>
   <main class="workspace">
-    <h2 id="conversation-title" class="conversation-title">新对话</h2>
+    <div class="conversation-heading">
+      <h2 id="conversation-title" class="conversation-title">新对话</h2>
+      <button id="breakpoint-open" type="button" class="secondary" disabled>学习断点</button>
+    </div>
     <section class="welcome" aria-labelledby="welcome-title">
       <p class="eyebrow">个人 AI 编程学习</p>
       <h1 id="welcome-title">从一个你想弄懂的<br>问题开始。</h1>
@@ -77,6 +80,29 @@
     <div class="dialog-heading"><h2 id="teaching-title">教学材料</h2><button id="teaching-close" type="button" class="secondary">关闭</button></div>
     <p id="teaching-summary" class="field-note" role="status"></p>
     <div id="teaching-content"></div>
+  </dialog>
+  <dialog id="breakpoint-dialog" aria-labelledby="breakpoint-title">
+    <div class="dialog-heading"><h2 id="breakpoint-title">计算机学习断点</h2><button id="breakpoint-close" type="button" class="secondary">关闭</button></div>
+    <p class="field-note">根据当前对话整理计算机学习主线；只有点击“保存断点”才更新记录。整理会调用 DeepSeek，保存不调用模型。原项目文件不改动。</p>
+    <section aria-label="已保存断点">
+      <h3>已保存</h3>
+      <p id="breakpoint-meta" class="field-note"></p>
+      <pre id="breakpoint-saved">正在读取……</pre>
+      <details id="breakpoint-source" hidden><summary>查看来源聊天（截至保存位置）</summary><div id="breakpoint-source-content"></div></details>
+    </section>
+    <div class="breakpoint-actions">
+      <button id="breakpoint-generate" type="button" class="secondary">整理学习断点</button>
+      <button id="breakpoint-cancel" type="button" class="secondary" hidden>取消整理</button>
+    </div>
+    <section id="breakpoint-draft-area" hidden>
+      <label for="breakpoint-editor">待核对草稿（可以直接修改）</label>
+      <p id="breakpoint-draft-meta" class="field-note"></p>
+      <textarea id="breakpoint-editor" rows="12" maxlength="20000"></textarea>
+      <p class="field-note">请核对“讲过”和“理解了”的区别。未保存的草稿和修改在刷新或关闭页面后会丢失。</p>
+      <button id="breakpoint-save" type="button" class="send">保存断点</button>
+    </section>
+    <p id="breakpoint-status" role="status" class="field-note"></p>
+    <p class="field-note">当前支持记录与查看；从断点开启新对话将在下一步接入。</p>
   </dialog>
 </body>
 </html>

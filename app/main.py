@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app import context as teaching, model, storage
+from app import breakpoints, context as teaching, model, storage
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = ROOT / "web"
@@ -69,11 +69,17 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+        if app.state.breakpoint_task:
+            app.state.breakpoint_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await app.state.breakpoint_task
 
     app = FastAPI(title="Trae-Learning", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.active_task = None
     app.state.active_id = None
     app.state.save_error = False
+    app.state.breakpoint_task = None
+    app.state.breakpoint_draft = None
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
 
     @app.middleware("http")
@@ -113,15 +119,26 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
         if conversation_id != app.state.conversation.id:
             raise HTTPException(409, "其他窗口已切换对话，请重新读取聊天后再操作。")
 
+    def require_no_breakpoint_task():
+        if app.state.breakpoint_task:
+            raise HTTPException(409, "正在整理学习断点，请等待完成或取消整理。")
+
+    def read_breakpoint():
+        try:
+            return breakpoints.load(root)
+        except ValueError as exc:
+            raise HTTPException(503, "已保存的断点文件格式异常，未覆盖原文件，请先检查本地记录。") from exc
+
     def require_switchable(conversation_id):
         require_current(conversation_id)
+        require_no_breakpoint_task()
         if app.state.active_task:
             raise HTTPException(409, "请先停止当前回答，再新建或切换对话。")
         if app.state.save_error:
             raise HTTPException(503, "当前记录尚未保存，请先重试保存，再切换对话。")
 
     def conversation_view():
-        return {"conversation": app.state.conversation.model_dump(mode="json"), "active": bool(app.state.active_task), "save_error": app.state.save_error}
+        return {"conversation": app.state.conversation.model_dump(mode="json"), "active": bool(app.state.active_task or app.state.breakpoint_task), "activity": "breakpoint" if app.state.breakpoint_task else "chat" if app.state.active_task else None, "save_error": app.state.save_error}
 
     @app.get("/api/health")
     async def health():
@@ -133,6 +150,7 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
 
     @app.post("/api/settings")
     async def update_settings(body: SettingsInput):
+        require_no_breakpoint_task()
         if app.state.active_task:
             raise HTTPException(409, "请等待当前回答结束后再修改设置。")
         key = body.api_key.get_secret_value() or storage.read_settings(root)["api_key"]
@@ -198,6 +216,7 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
     @app.post("/api/conversation/save")
     async def retry_save(body: ConversationInput):
         require_current(body.conversation_id)
+        require_no_breakpoint_task()
         if app.state.active_task:
             raise HTTPException(409, "请先停止生成，再重试保存。")
         if not persist():
@@ -218,6 +237,7 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
     @app.post("/api/chat")
     async def chat(body: ChatInput, request: Request):
         require_current(body.conversation_id)
+        require_no_breakpoint_task()
         if app.state.active_task:
             raise HTTPException(409, "已有回答正在生成，请勿在多个窗口同时发送。")
         if app.state.save_error:
@@ -315,6 +335,126 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
                     task.cancel()
 
         return StreamingResponse(event_stream(), media_type="application/x-ndjson", headers={"X-Content-Type-Options": "nosniff"})
+
+    @app.get("/api/breakpoint")
+    async def get_breakpoint():
+        record = read_breakpoint()
+        current = app.state.conversation
+        new_messages = None
+        if record and record.conversation_id == current.id:
+            new_messages = max(0, len(current.messages) - record.message_count)
+        return {"record": record.model_dump(mode="json") if record else None, "new_messages": new_messages}
+
+    @app.get("/api/breakpoint/source")
+    async def breakpoint_source():
+        record = read_breakpoint()
+        if record is None:
+            raise HTTPException(404, "还没有已保存的学习断点。")
+        try:
+            source = storage.load_conversation(root, record.conversation_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "来源对话文件已不存在，已保存断点仍保留。") from exc
+        messages = source.messages[:record.message_count]
+        if not messages or messages[-1].id != record.through_message_id:
+            raise HTTPException(409, "来源对话与保存位置不一致，请检查本地文件。")
+        return {"record_id": str(record.id), "messages": [m.model_dump(mode="json") for m in messages]}
+
+    @app.post("/api/breakpoint/draft")
+    async def draft_breakpoint(body: ConversationInput, request: Request):
+        require_switchable(body.conversation_id)
+        conversation = app.state.conversation
+        if not conversation.messages:
+            raise HTTPException(400, "当前对话还没有消息，先学一段再整理。")
+        settings = storage.read_settings(root)
+        if not settings["api_key"] or settings["model"] not in storage.MODELS:
+            raise HTTPException(400, "请先配置有效的模型设置，再整理断点。")
+        previous = read_breakpoint()
+        try:
+            prepared = teaching.prepare(root)
+        except teaching.ContextError as exc:
+            raise HTTPException(503, str(exc)) from exc
+        context = breakpoints.prompt(prepared, previous, conversation)
+
+        async def collect():
+            text = ""
+            async with asyncio.timeout(120):
+                async for chunk in stream_reply(settings, context):
+                    text += chunk
+                    if len(text) > breakpoints.MAX_CONTENT:
+                        raise ValueError("Draft too long")
+            return breakpoints.validate_generated(text)
+
+        task = asyncio.create_task(collect())
+        app.state.breakpoint_task = task
+        try:
+            while not task.done():
+                await asyncio.wait({task}, timeout=0.5)
+                if await request.is_disconnected():
+                    raise HTTPException(499, "整理已取消，旧断点未改变。")
+            text = task.result()
+            draft = breakpoints.Draft(
+                base_revision=previous.id if previous else None,
+                conversation_id=conversation.id,
+                conversation_title=storage.conversation_title(conversation),
+                through_message_id=conversation.messages[-1].id,
+                message_count=len(conversation.messages), content=text,
+            )
+            app.state.breakpoint_draft = draft
+            return draft.model_dump(mode="json")
+        except model.ModelError as exc:
+            raise HTTPException(502, f"整理未完成：{exc} 旧断点未改变。") from exc
+        except asyncio.CancelledError as exc:
+            raise HTTPException(409, "整理已取消，旧断点未改变。") from exc
+        except (ValueError, TimeoutError) as exc:
+            raise HTTPException(502, "未获得完整的断点草稿，旧断点未改变，可以手动重试。") from exc
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("Breakpoint generation failed; provider payload omitted")
+            raise HTTPException(502, "整理遇到异常，旧断点未改变，可以手动重试。") from exc
+        finally:
+            if not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+            if not task.cancelled():
+                task.exception()  # Retrieve failures even if the browser disconnected at completion.
+            if app.state.breakpoint_task is task:
+                app.state.breakpoint_task = None
+
+    @app.post("/api/breakpoint/cancel")
+    async def cancel_breakpoint(body: ConversationInput):
+        require_current(body.conversation_id)
+        task = app.state.breakpoint_task
+        if task:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+            if app.state.breakpoint_task is task:
+                app.state.breakpoint_task = None
+        return {"cancelled": True}
+
+    @app.post("/api/breakpoint")
+    async def save_breakpoint(body: breakpoints.SaveInput):
+        require_switchable(body.conversation_id)
+        draft = app.state.breakpoint_draft
+        if draft is None or draft.id != body.draft_id or draft.conversation_id != body.conversation_id:
+            raise HTTPException(409, "草稿已失效或属于另一段对话，请保留修改内容并重新整理。")
+        text = body.content.strip()
+        if not text:
+            raise HTTPException(400, "断点内容不能为空。")
+        previous = read_breakpoint()
+        # Repeating a save after a lost HTTP response must not create a second revision.
+        if previous and previous.id == draft.id and previous.content == text:
+            return previous.model_dump(mode="json")
+        if (previous.id if previous else None) != draft.base_revision:
+            raise HTTPException(409, "已保存断点发生变化，请保留修改内容并重新整理，避免覆盖新记录。")
+        conversation = app.state.conversation
+        if len(conversation.messages) != draft.message_count or conversation.messages[-1].id != draft.through_message_id:
+            raise HTTPException(409, "整理后已有新消息，请保留修改内容并重新整理。旧断点未改变。")
+        record = breakpoints.Breakpoint(**{**draft.model_dump(), "content": text})
+        breakpoints.save(root, record)
+        return record.model_dump(mode="json")
 
     @app.get("/")
     async def index():

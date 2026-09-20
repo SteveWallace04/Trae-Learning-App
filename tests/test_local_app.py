@@ -1,6 +1,7 @@
 """Start a real local server and check public routes without any model calls."""
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import socket
 import subprocess
@@ -33,6 +34,7 @@ from app.main import create_app
 from app import storage
 root = Path(sys.argv[1])
 storage.save_settings(root, 'sk-test-only', 'deepseek-flash')
+storage.save_conversation(root, storage.Conversation(messages=[storage.Message(role='user', content='synthetic learner observation')]))
 async def slow(settings, messages):
     yield 'partial test answer'
     await asyncio.Event().wait()
@@ -96,6 +98,23 @@ uvicorn.run(create_app(root, slow), host='127.0.0.1', port=int(sys.argv[2]))
                 with self.assertRaises(HTTPError) as caught:
                     urlopen(self.base_url + path)
                 self.assertEqual(caught.exception.code, 404)
+
+    def test_explicit_breakpoint_cancel_does_not_save_or_change_chat(self):
+        with httpx.Client() as client:
+            before = client.get(self.base_url + "/api/conversation").json()["conversation"]
+            with ThreadPoolExecutor() as pool:
+                future = pool.submit(client.post, self.base_url + "/api/breakpoint/draft", json={"conversation_id": before["id"]})
+                for _ in range(30):
+                    if client.get(self.base_url + "/api/conversation").json()["active"]:
+                        break
+                    time.sleep(0.1)
+                response = client.post(self.base_url + "/api/breakpoint/cancel", json={"conversation_id": before["id"]})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(future.result(5).status_code, 409)
+            state = client.get(self.base_url + "/api/conversation").json()
+            self.assertFalse(state["active"])
+            self.assertEqual(state["conversation"], before)
+            self.assertIsNone(client.get(self.base_url + "/api/breakpoint").json()["record"])
 
 
 if __name__ == "__main__":
