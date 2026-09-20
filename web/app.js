@@ -280,8 +280,8 @@ async function refreshTeachingNotice() {
   try {
     const data = await (await api("/api/teaching")).json();
     $("#teaching-notice").textContent = data.mode === "linked"
-      ? `已接入原项目的 ${data.materials.length} 份材料。发送时将连同聊天交给 DeepSeek；断点目前只读取，不自动更新。`
-      : "尚未连接原项目，当前使用基础聊天提示。可在“教学材料”中查看。";
+      ? `已准备 ${data.materials.length} 份教学与学习材料。发送时将连同聊天交给 DeepSeek；已保存断点会供聊天参考，不自动更新。`
+      : "尚未连接原项目，使用基础聊天提示，并参考已有的应用断点（如有）。可在“教学材料”中查看。";
   } catch (error) { $("#teaching-notice").textContent = error.message; }
 }
 
@@ -295,8 +295,8 @@ async function showTeaching(messageId = null) {
   try {
     const data = await (await api(messageId ? `/api/messages/${messageId}/context` : "/api/teaching")).json();
     $("#teaching-summary").textContent = data.mode === "linked"
-      ? `${messageId ? "这是该次请求保存的原文快照，后续修改不会改变它。" : "这是当前原文预览；发送问题时会重新读取。"}来源：${data.source}。共 ${data.materials.length} 份，${data.system_prompt.length.toLocaleString()} 字符（不是 token 数）。材料会发送给 DeepSeek；目前不运行代码，也不更新学习记录。`
-      : "本次使用基础聊天提示，没有接入个人学习材料。";
+      ? `${messageId ? "这是该次请求保存的原文快照，后续修改不会改变它。" : "这是当前原文预览；发送问题时会重新读取。"}来源：${data.source}。共 ${data.materials.length} 份，${data.system_prompt.length.toLocaleString()} 字符（不是 token 数）。材料会发送给 DeepSeek；普通聊天不运行代码，也不自动更新学习记录。`
+      : "本次使用基础聊天提示；如有已保存的应用断点，也会列在下方并提供给模型。";
     function addSection(title, text) {
       const details = document.createElement("details");
       const summary = document.createElement("summary");

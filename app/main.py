@@ -370,7 +370,7 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
             raise HTTPException(400, "请先配置有效的模型设置，再整理断点。")
         previous = read_breakpoint()
         try:
-            prepared = teaching.prepare(root)
+            prepared = teaching.prepare_materials(root)
         except teaching.ContextError as exc:
             raise HTTPException(503, str(exc)) from exc
         context = breakpoints.prompt(prepared, previous, conversation)

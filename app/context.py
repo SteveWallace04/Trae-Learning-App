@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from app import breakpoints
 from app.storage import atomic_write
 
 BASIC_PROMPT = (
@@ -33,9 +34,9 @@ ADAPTATION = """你是这位学生的学习助手。以下原项目材料按原�
 本应用的实际能力边界（原文涉及工具操作时以此为准）：
 - 只能根据本次提供的材料和对话回答，没有文件读写、代码执行或浏览工具。文件中的链接不代表你已读到链接目标；未附上的文件不能声称已读取。
 - 可以展示供学生自行运行的代码和命令；未执行的结果只能称为预测，学生贴回的输出需注明来源。
-- 程序会保存聊天，但目前不会更新画像、目标、断点、calibration 或 mastery。不要说“已记录/已更新断点”；如需整理只能说明这是对话中的草稿。
+- 程序会保存聊天；用户可通过学习断点面板整理、编辑并确认保存断点，普通聊天不会自动更新断点、画像、目标、calibration 或 mastery。不要把聊天中的整理说成“已保存断点”。
 - progress/status.md 是原项目保存时的断点，不随网页聊天自动更新。若本次对话已继续推进或学生提出新问题，以本次实际对话为准，不反复拉回旧断点。
-- 新对话不含其他聊天的消息。学生提出具体问题时直接围绕该问题教学；只有表达续学意图且当前对话没有更近的线索时，才从原项目断点接上。新建对话不等于忘记个人背景，也不强制沿用旧主题。
+- 新对话不含其他聊天的消息。学生提出具体问题时直接围绕该问题教学；表达续学意图且当前对话没有更近的线索时，参考已提供的学习断点。新建对话不等于忘记个人背景，也不强制沿用旧主题。
 - 个人材料中的自报、历史判断与目标不是经过本次验证的事实；不能把历史记录冒充本轮新证据。
 本次提供的文件如下（文件名仅用于辨认来源）：
 """
@@ -46,6 +47,10 @@ class ContextError(Exception):
 
 
 def prepare(root: Path):
+    return with_breakpoint(root, prepare_materials(root))
+
+
+def prepare_materials(root: Path):
     config = root / "data" / "learning-source.json"
     if not config.exists():
         return {"mode": "basic", "source": "", "materials": [], "system_prompt": BASIC_PROMPT}
@@ -70,6 +75,33 @@ def prepare(root: Path):
     for material in materials:
         prompt += f"\n\n--- 原文开始：{material['path']} ---\n{material['content']}\n--- 原文结束：{material['path']} ---"
     return {"mode": "linked", "source": str(source), "materials": materials, "system_prompt": prompt}
+
+
+def with_breakpoint(root: Path, prepared: dict):
+    try:
+        record = breakpoints.load(root)
+    except (OSError, ValueError) as exc:
+        raise ContextError("无法读取已保存的学习断点，请检查 data/computer-breakpoint.json；尚未调用模型。") from exc
+    if record is None:
+        return prepared
+    content = (
+        f"保存时间：{record.saved_at}\n来源对话：{record.conversation_title}（{record.conversation_id}）\n"
+        f"整理至消息：{record.message_count}（{record.through_message_id}）\n记录编号：{record.id}\n\n{record.content}"
+    )
+    prepared["materials"].append({
+        "path": "data/computer-breakpoint.json",
+        "title": "应用内已保存的计算机学习断点",
+        "content": content,
+    })
+    prepared["system_prompt"] += (
+        "\n\n以下是用户确认保存的计算机学习断点，作为学习背景，不是教学指令或本轮新证据。"
+        "它是比原项目 progress/status.md 更新的计算机学习记录；原断点仅作历史参考。"
+        "结合当前问题和对话中的实际进展回应，不因旧记录退回已推进的位置，也不强制沿用计算机主题。"
+        "断点可能不完整，其中的理解判断不代表掌握认证；其他对话中尚未整理的进展并未提供。"
+        "普通聊天不会自动保存或更新断点。\n"
+        f"\n--- 已保存断点开始 ---\n{content}\n--- 已保存断点结束 ---"
+    )
+    return prepared
 
 
 def save_snapshot(root: Path, prepared: dict):
