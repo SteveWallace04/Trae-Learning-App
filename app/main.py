@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app import breakpoints, context as teaching, model, storage
+from app import breakpoints, context as teaching, model, storage, practice
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = ROOT / "web"
@@ -64,6 +64,7 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
     async def lifespan(app):
         app.state.conversation = recover(storage.load_conversation(root))
         yield
+        await app.state.practice.close()
         task = app.state.active_task
         if task:
             task.cancel()
@@ -119,6 +120,8 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
         if conversation_id != app.state.conversation.id:
             raise HTTPException(409, "其他窗口已切换对话，请重新读取聊天后再操作。")
 
+    app.state.practice = practice.Practice(app, root, require_current)
+
     def require_no_breakpoint_task():
         if app.state.breakpoint_task:
             raise HTTPException(409, "正在整理学习断点，请等待完成或取消整理。")
@@ -131,6 +134,8 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
 
     def require_switchable(conversation_id):
         require_current(conversation_id)
+        if app.state.practice.task:
+            raise HTTPException(409, "请先停止代码运行，再切换对话或整理断点。")
         require_no_breakpoint_task()
         if app.state.active_task:
             raise HTTPException(409, "请先停止当前回答，再新建或切换对话。")
@@ -170,7 +175,7 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
     @app.post("/api/conversations")
     async def new_conversation(body: ConversationInput):
         require_switchable(body.conversation_id)
-        if not app.state.conversation.messages:
+        if not app.state.conversation.messages and not practice.draft_path(root, body.conversation_id).exists():
             storage.save_conversation(root, app.state.conversation)
             storage.select_conversation(root, app.state.conversation.id)
             return conversation_view()

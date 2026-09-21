@@ -45,13 +45,14 @@ function alertUser(text = "") {
 
 function controls() {
   const recording = breakpointBusy || breakpointSaving;
+  const practicing = practice.isBusy();
   input.disabled = !ready || !settings?.configured || busy || remoteBusy || saveError || switching || recording;
   send.textContent = busy ? (stopping ? "正在停止…" : "停止") : "发送 ↑";
   send.disabled = busy ? (!activeReply || stopping) : (input.disabled || !input.value.trim());
   $("#settings-open").disabled = !ready || busy || remoteBusy || switching || recording;
-  $("#conversation-new").disabled = !ready || busy || remoteBusy || saveError || switching || recording;
+  $("#conversation-new").disabled = !ready || busy || remoteBusy || saveError || switching || recording || practicing;
   document.querySelectorAll(".conversation-item").forEach((button) => {
-    button.disabled = !ready || busy || remoteBusy || saveError || switching || recording;
+    button.disabled = !ready || busy || remoteBusy || saveError || switching || recording || practicing;
     button.setAttribute("aria-current", String(button.dataset.id === conversationId));
   });
   $("#save-retry").hidden = !saveError;
@@ -65,12 +66,14 @@ function controls() {
     button.disabled = !ready || busy || remoteBusy || saveError || switching || recording || !settings?.configured;
   });
   $("#breakpoint-open").disabled = !ready || switching;
-  $("#breakpoint-generate").disabled = !ready || busy || remoteBusy || saveError || switching || recording || !settings?.configured || !messages.length;
+  $("#breakpoint-generate").disabled = !ready || busy || remoteBusy || saveError || switching || recording || practicing || !settings?.configured || !messages.length;
   $("#breakpoint-generate").textContent = breakpointBusy ? "正在整理…" : breakpointDraft ? "重新整理（替换草稿）" : "整理学习断点";
   $("#breakpoint-cancel").hidden = !breakpointBusy;
   $("#breakpoint-save").disabled = !breakpointDraft || breakpointDraft.conversation_id !== conversationId || !$("#breakpoint-editor").value.trim() || busy || remoteBusy || saveError || recording || !ready;
   $("#breakpoint-editor").disabled = recording;
   $("#breakpoint-close").disabled = breakpointSaving;
+  $("#practice-open").disabled = !ready || switching;
+  practice.controls();
 }
 
 function isAtBottom() {
@@ -107,7 +110,12 @@ function formatAnswer(container, text) {
         button.textContent = "已复制";
       } catch { button.textContent = "复制失败，请手动选择"; }
     });
-    pre.prepend(button);
+    const practiceButton = document.createElement("button");
+    practiceButton.type = "button";
+    practiceButton.className = "secondary practice-code";
+    practiceButton.textContent = "放入练习区";
+    practiceButton.addEventListener("click", () => practice.insert(code.textContent));
+    pre.prepend(practiceButton, button);
   });
 }
 
@@ -203,17 +211,20 @@ async function refreshConversations() {
 async function restoreConversation() {
   displayConversation(await (await api("/api/conversation")).json());
   await refreshConversations();
+  await practice.load();
 }
 
 async function changeConversation(id = null) {
-  if (!ready || busy || remoteBusy || saveError || switching || breakpointBusy || breakpointSaving || id === conversationId) return;
+  if (!ready || busy || remoteBusy || saveError || switching || breakpointBusy || breakpointSaving || practice.isBusy() || id === conversationId) return;
   switching = true;
   controls();
   alertUser();
   try {
+    await practice.flush();
     const path = id ? `/api/conversations/${id}/select` : "/api/conversations";
     displayConversation(await (await api(path, {conversation_id: conversationId})).json());
     await refreshConversations();
+    await practice.load();
     scrollIfFollowing(true);
   } catch (error) {
     try { await restoreConversation(); }
@@ -524,4 +535,3 @@ $("#breakpoint-source").addEventListener("toggle", async () => {
     }));
   } catch (error) { target.textContent = error.message; }
 });
-initialize();

@@ -5,10 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Trae-Learning · 个人编程学习</title>
-  <link rel="stylesheet" href="/static/style.css?v=5">
+  <link rel="stylesheet" href="/static/style.css?v=6">
   <script src="/static/vendor/marked.umd.js" defer></script>
   <script src="/static/vendor/purify.min.js" defer></script>
-  <script src="/static/app.js?v=5" defer></script>
+  <script src="/static/app.js?v=6" defer></script>
+  <script src="/static/practice.js?v=6" defer></script>
 </head>
 <body>
   <header class="header">
@@ -33,6 +34,7 @@
   <main class="workspace">
     <div class="conversation-heading">
       <h2 id="conversation-title" class="conversation-title">新对话</h2>
+      <button id="practice-open" type="button" class="secondary" disabled aria-expanded="false" aria-controls="practice-panel">代码练习</button>
       <button id="breakpoint-open" type="button" class="secondary" disabled>学习断点</button>
     </div>
     <section class="welcome" aria-labelledby="welcome-title">
@@ -62,6 +64,24 @@
       <p id="composer-note" class="composer-note" role="status">正在读取本地记录……</p>
     </section>
   </main>
+  <aside id="practice-panel" class="practice-panel" aria-label="代码练习" hidden>
+    <div class="practice-heading"><h2>代码练习</h2><button id="practice-close" class="secondary" type="button">收起</button></div>
+    <label for="practice-language">语言</label>
+    <select id="practice-language"><option value="c">C · main.c</option><option value="java">Java · Main.java</option></select>
+    <p id="practice-tools" class="field-note"></p>
+    <label for="practice-code">代码</label>
+    <textarea id="practice-code" rows="16" spellcheck="false" maxlength="20000" aria-describedby="practice-note"></textarea>
+    <p id="practice-note" class="field-note">单文件程序；Java 使用 public class Main，不声明 package。Tab 插入四个空格，Esc 后按 Tab 可离开编辑区。</p>
+    <label for="practice-input">标准输入</label>
+    <textarea id="practice-input" rows="3" maxlength="8000" placeholder="运行前填好输入，例如：3 5"></textarea>
+    <p class="field-note">代码在本机执行，可以访问本机文件；这里不是隔离沙箱。运行不调用模型。</p>
+    <div class="practice-actions"><button id="practice-run" class="send" type="button">运行</button><button id="practice-stop" class="secondary" type="button" hidden>停止</button><button id="practice-save" class="secondary" type="button">保存草稿</button><button id="practice-reload" class="secondary" type="button">重新读取</button></div>
+    <p id="practice-save-status" role="status" class="field-note"></p>
+    <p id="practice-status" role="status" class="field-note"></p>
+    <pre id="practice-output" tabindex="0">运行后在这里查看编译信息和输出。</pre>
+    <button id="practice-attach" class="secondary" type="button" disabled>把本次代码与结果放入聊天</button>
+    <p class="field-note">使用那次运行时的代码，之后在聊天框补充问题再发送。运行结果仅保留在服务内存；发进聊天后随聊天保存。</p>
+  </aside>
   </div>
   <dialog id="settings-dialog" aria-labelledby="settings-title">
     <form id="settings-form">
@@ -102,7 +122,7 @@
       <button id="breakpoint-save" type="button" class="send">保存断点</button>
     </section>
     <p id="breakpoint-status" role="status" class="field-note"></p>
-    <p class="field-note">当前支持记录与查看；从断点开启新对话将在下一步接入。</p>
+    <p class="field-note">已保存断点会供后续普通聊天参考，不必另开续学流程。</p>
   </dialog>
 </body>
 </html>
