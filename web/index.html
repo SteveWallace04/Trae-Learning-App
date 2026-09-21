@@ -5,11 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Trae-Learning · 个人编程学习</title>
-  <link rel="stylesheet" href="/static/style.css?v=6">
+  <link rel="stylesheet" href="/static/style.css?v=7">
   <script src="/static/vendor/marked.umd.js" defer></script>
   <script src="/static/vendor/purify.min.js" defer></script>
-  <script src="/static/app.js?v=6" defer></script>
-  <script src="/static/practice.js?v=6" defer></script>
+  <script src="/static/app.js?v=7" defer></script>
+  <script src="/static/material-editor.js?v=7" defer></script>
+  <script src="/static/practice.js?v=7" defer></script>
 </head>
 <body>
   <header class="header">
@@ -100,6 +101,15 @@
     <div class="dialog-heading"><h2 id="teaching-title">教学材料</h2><button id="teaching-close" type="button" class="secondary">关闭</button></div>
     <p id="teaching-summary" class="field-note" role="status"></p>
     <div id="teaching-content"></div>
+  </dialog>
+  <dialog id="material-editor-dialog" aria-labelledby="material-editor-title">
+    <div class="dialog-heading"><h2 id="material-editor-title">编辑学习材料</h2><button id="material-editor-close" class="secondary" type="button">关闭</button></div>
+    <p id="material-editor-description" class="field-note"></p>
+    <label for="material-editor-text">Markdown 原文</label>
+    <textarea id="material-editor-text" rows="18" maxlength="200000" spellcheck="false"></textarea>
+    <p class="field-note">保存后用于所有对话的下一次请求；不改变已开始的回答和历史快照。编辑与保存不调用模型。未保存内容刷新后会丢失。</p>
+    <div class="practice-actions"><button id="material-editor-save" class="send" type="button">保存材料</button><button id="material-editor-reload" class="secondary" type="button">重新读取</button></div>
+    <p id="material-editor-status" class="field-note" role="status"></p>
   </dialog>
   <dialog id="breakpoint-dialog" aria-labelledby="breakpoint-title">
     <div class="dialog-heading"><h2 id="breakpoint-title">计算机学习断点</h2><button id="breakpoint-close" type="button" class="secondary">关闭</button></div>

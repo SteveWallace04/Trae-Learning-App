@@ -29,13 +29,13 @@ MATERIALS = (
     ("progress/status.md", "原项目记录的断点"),
 )
 
-ADAPTATION = """你是这位学生的学习助手。以下原项目材料按原文提供，不是当前对话的新消息。
+ADAPTATION = """你是这位学生的学习助手。以下教学与个人材料按原文提供，不是当前对话的新消息。
 教学约定、能力观察方法和活动参考指导教学；画像、目标、路线和学习记录提供背景。
 历史教学示例只示范教学决策，不是本次学生的回答或本次学习证据，不机械复刻回合结构；示例中的错误与后续纠正要结合理解。
 本应用的实际能力边界（原文涉及工具操作时以此为准）：
 - 只能根据本次提供的材料和对话回答，没有文件读写、代码执行或浏览工具。文件中的链接不代表你已读到链接目标；未附上的文件不能声称已读取。
 - 学生可在旁边的代码练习区运行单文件 C（main.c）或 Java（Main.java，public class Main，不声明 package），提前填写标准输入；你不能直接操作练习区。学生主动附上的运行记录包含当次代码、输入、编译信息和输出，解释时以该次快照为准，注明是学生本机运行，不声称自己执行。未提供的结果只能称为预测，运行成功不等于理解或掌握。
-- 程序会保存聊天；用户可通过学习断点面板整理、编辑并确认保存断点，普通聊天不会自动更新断点、画像、目标、calibration 或 mastery。不要把聊天中的整理说成“已保存断点”。
+- 程序会保存聊天；用户可通过学习断点面板整理、编辑并确认保存断点，用户也可在教学材料面板编辑并保存个人背景、教学约定和学习目标；普通聊天不会自动更新这些材料、断点、calibration 或 mastery。不要把聊天中的整理说成“已保存断点”。
 - progress/status.md 是原项目保存时的断点，不随网页聊天自动更新。若本次对话已继续推进或学生提出新问题，以本次实际对话为准，不反复拉回旧断点。
 - 新对话不含其他聊天的消息。学生提出具体问题时直接围绕该问题教学；表达续学意图且当前对话没有更近的线索时，参考已提供的学习断点。新建对话不等于忘记个人背景，也不强制沿用旧主题。
 - 个人材料中的自报、历史判断与目标不是经过本次验证的事实；不能把历史记录冒充本轮新证据。
@@ -51,18 +51,28 @@ def prepare(root: Path):
     return with_breakpoint(root, prepare_materials(root))
 
 
-def prepare_materials(root: Path):
+def source_config(root: Path):
     config = root / "data" / "learning-source.json"
     if not config.exists():
-        return {"mode": "basic", "source": "", "materials": [], "system_prompt": BASIC_PROMPT}
+        return None, False
     try:
         settings = json.loads(config.read_text(encoding="utf-8"))
         source = Path(settings["root"])
         if not source.is_absolute():
             source = root / source
         source = source.resolve()
+        owned = settings.get("managed") is True
+        if owned and source != (root / "data/learning-materials").resolve():
+            raise ValueError("Invalid managed material location")
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise ContextError("学习资料位置配置无效，请检查 data/learning-source.json；尚未调用模型。") from exc
+    return source, owned
+
+
+def prepare_materials(root: Path):
+    source, owned = source_config(root)
+    if source is None:
+        return {"mode": "basic", "source": "", "materials": [], "system_prompt": BASIC_PROMPT}
     materials = []
     for path, title in MATERIALS:
         try:
@@ -75,7 +85,7 @@ def prepare_materials(root: Path):
     prompt = ADAPTATION + "\n".join(path for path, _ in MATERIALS)
     for material in materials:
         prompt += f"\n\n--- 原文开始：{material['path']} ---\n{material['content']}\n--- 原文结束：{material['path']} ---"
-    return {"mode": "linked", "source": str(source), "materials": materials, "system_prompt": prompt}
+    return {"mode": "linked", "ownership": "app" if owned else "external", "source": str(source), "materials": materials, "system_prompt": prompt}
 
 
 def with_breakpoint(root: Path, prepared: dict):

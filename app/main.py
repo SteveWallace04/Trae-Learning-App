@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app import breakpoints, context as teaching, model, storage, practice
+from app import breakpoints, context as teaching, model, storage, practice, learning_materials
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = ROOT / "web"
@@ -207,6 +207,14 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
             return teaching.prepare(root)
         except teaching.ContextError as exc:
             raise HTTPException(503, str(exc)) from exc
+
+    @app.get("/api/materials/{material_id}")
+    async def read_material(material_id: str):
+        return learning_materials.read(root, material_id)
+
+    @app.post("/api/materials/{material_id}")
+    async def save_material(material_id: str, body: learning_materials.MaterialInput):
+        return learning_materials.save(root, material_id, body)
 
     @app.get("/api/messages/{message_id}/context")
     async def message_context(message_id: UUID):

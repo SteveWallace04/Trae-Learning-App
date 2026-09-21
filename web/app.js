@@ -292,7 +292,7 @@ async function refreshTeachingNotice() {
     const data = await (await api("/api/teaching")).json();
     $("#teaching-notice").textContent = data.mode === "linked"
       ? `已准备 ${data.materials.length} 份教学与学习材料。发送时将连同聊天交给 DeepSeek；已保存断点会供聊天参考，不自动更新。`
-      : "尚未连接原项目，使用基础聊天提示，并参考已有的应用断点（如有）。可在“教学材料”中查看。";
+      : "尚未配置学习材料，使用基础聊天提示，并参考已有的应用断点（如有）。可在“教学材料”中查看。";
   } catch (error) { $("#teaching-notice").textContent = error.message; }
 }
 
@@ -302,11 +302,11 @@ async function showTeaching(messageId = null) {
   $("#teaching-title").textContent = messageId ? "本次教学材料" : "下一次回答的教学材料";
   $("#teaching-summary").textContent = "正在读取……";
   target.replaceChildren();
-  panel.showModal();
+  if (!panel.open) panel.showModal();
   try {
     const data = await (await api(messageId ? `/api/messages/${messageId}/context` : "/api/teaching")).json();
     $("#teaching-summary").textContent = data.mode === "linked"
-      ? `${messageId ? "这是该次请求保存的原文快照，后续修改不会改变它。" : "这是当前原文预览；发送问题时会重新读取。"}来源：${data.source}。共 ${data.materials.length} 份，${data.system_prompt.length.toLocaleString()} 字符（不是 token 数）。材料会发送给 DeepSeek；普通聊天不运行代码，也不自动更新学习记录。`
+      ? `${messageId ? "这是该次请求保存的原文快照，后续修改不会改变它。" : "这是当前原文预览；发送问题时会重新读取。"}${data.ownership === "app" ? "材料由应用维护" : "原目录材料只读"}；来源：${data.source}。共 ${data.materials.length} 份，${data.system_prompt.length.toLocaleString()} 字符（不是 token 数）。材料会发送给 DeepSeek；普通聊天不运行代码，也不自动更新学习记录。`
       : "本次使用基础聊天提示；如有已保存的应用断点，也会列在下方并提供给模型。";
     function addSection(title, text) {
       const details = document.createElement("details");
@@ -316,8 +316,20 @@ async function showTeaching(messageId = null) {
       body.textContent = text;
       details.append(summary, body);
       target.append(details);
+      return details;
     }
-    data.materials.forEach((item) => addSection(`${item.title} · ${item.path}`, item.content));
+    const editableMaterials = {"core/profile.md": "profile", "core/teaching.md": "teaching", "core/goals.md": "goals"};
+    data.materials.forEach((item) => {
+      const section = addSection(`${item.title} · ${item.path}`, item.content);
+      if (!messageId && data.ownership === "app" && editableMaterials[item.path]) {
+        const edit = document.createElement("button");
+        edit.type = "button";
+        edit.className = "secondary";
+        edit.textContent = "编辑并保存";
+        edit.addEventListener("click", () => openMaterialEditor(editableMaterials[item.path]));
+        section.append(edit);
+      }
+    });
     addSection("完整教学上下文（含应用能力说明）", data.system_prompt);
   } catch (error) { $("#teaching-summary").textContent = error.message; }
 }

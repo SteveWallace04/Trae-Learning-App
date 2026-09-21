@@ -143,3 +143,7 @@ dialog input, dialog select { width: 100%; font: inherit; padding: 10px; border:
   .practice-visible .practice-panel { grid-column: 1; margin: 16px 20px; }
   .conversation-heading { flex-wrap: wrap; }
 }
+#material-editor-dialog { width: min(900px, calc(100vw - 32px)); }
+#material-editor-text { min-height: 320px; max-height: 60vh; resize: vertical; border: 1px solid #becbbd; border-radius: 8px; padding: 12px; font: 14px/1.8 Consolas, "Microsoft YaHei", monospace; }
+#material-editor-text:focus-visible { outline: 2px solid #527d63; }
+#material-editor-status { white-space: pre-wrap; }
