@@ -140,6 +140,14 @@ function drawMessage(message) {
       materials.addEventListener("click", () => showTeaching(message.id));
       article.append(materials);
     }
+    if (message.role === "assistant") {
+      const feedback = document.createElement("button");
+      feedback.type = "button";
+      feedback.className = "secondary guidance-feedback";
+      feedback.textContent = "反馈这次讲解";
+      feedback.addEventListener("click", () => guidance.open(conversationId, message.id));
+      article.append(feedback);
+    }
     messageList.append(article);
     row = {article, content, status};
     rows.set(message.id, row);
@@ -150,6 +158,8 @@ function drawMessage(message) {
   else formatAnswer(row.content, message.content);
   const labels = {streaming: message.content ? "正在回答…" : "正在等待 DeepSeek…", stopped: "已停止 · 回答未完成", interrupted: "程序中断 · 回答未完成"};
   row.status.textContent = message.error || labels[message.status] || "";
+  const feedback = row.article.querySelector(".guidance-feedback");
+  if (feedback) feedback.disabled = message.status === "streaming";
 }
 
 function updateRetryButtons() {

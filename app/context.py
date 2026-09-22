@@ -70,11 +70,18 @@ def source_config(root: Path):
 
 
 def prepare_materials(root: Path):
+    from app import learning_materials
+    learning_materials.recover_pending(root)
     source, owned = source_config(root)
     if source is None:
         return {"mode": "basic", "source": "", "materials": [], "system_prompt": BASIC_PROMPT}
     materials = []
-    for path, title in MATERIALS:
+    settings = json.loads((root / 'data/learning-source.json').read_text(encoding='utf-8'))
+    selected = settings.get('materials', [path for path, _ in MATERIALS])
+    if not isinstance(selected, list) or not selected or any(not isinstance(path, str) or path not in dict(MATERIALS) for path in selected) or len(set(selected)) != len(selected):
+        raise ContextError('学习材料清单无效，请检查配置；尚未调用模型。')
+    for path in selected:
+        title = dict(MATERIALS)[path]
         try:
             content = (source / path).read_bytes().decode("utf-8")
             if not content.strip():
@@ -82,7 +89,7 @@ def prepare_materials(root: Path):
         except (OSError, ValueError) as exc:
             raise ContextError(f"无法完整读取学习材料 {path}，请检查文件；尚未调用模型。") from exc
         materials.append({"path": path, "title": title, "content": content})
-    prompt = ADAPTATION + "\n".join(path for path, _ in MATERIALS)
+    prompt = ADAPTATION + "\n".join(selected)
     for material in materials:
         prompt += f"\n\n--- 原文开始：{material['path']} ---\n{material['content']}\n--- 原文结束：{material['path']} ---"
     return {"mode": "linked", "ownership": "app" if owned else "external", "source": str(source), "materials": materials, "system_prompt": prompt}

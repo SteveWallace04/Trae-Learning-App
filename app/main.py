@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app import breakpoints, context as teaching, model, storage, practice, learning_materials
+from app import breakpoints, context as teaching, model, storage, practice, learning_materials, guidance
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = ROOT / "web"
@@ -62,8 +62,11 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
     # Injectable root and model call keep tests away from personal files and paid APIs.
     @asynccontextmanager
     async def lifespan(app):
+        learning_materials.initialize(root)
+        app.state.guidance.load()
         app.state.conversation = recover(storage.load_conversation(root))
         yield
+        await app.state.guidance.close()
         await app.state.practice.close()
         task = app.state.active_task
         if task:
@@ -123,6 +126,8 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
     app.state.practice = practice.Practice(app, root, require_current)
 
     def require_no_breakpoint_task():
+        if app.state.guidance.task:
+            raise HTTPException(409, "学习指导正在生成，请等待完成或停止。")
         if app.state.breakpoint_task:
             raise HTTPException(409, "正在整理学习断点，请等待完成或取消整理。")
 
@@ -144,6 +149,13 @@ def create_app(root: Path = ROOT, stream_reply=model.stream_reply):
 
     def conversation_view():
         return {"conversation": app.state.conversation.model_dump(mode="json"), "active": bool(app.state.active_task or app.state.breakpoint_task), "activity": "breakpoint" if app.state.breakpoint_task else "chat" if app.state.active_task else None, "save_error": app.state.save_error}
+
+    def require_guidance_idle():
+        require_no_breakpoint_task()
+        if app.state.active_task or app.state.save_error:
+            raise HTTPException(409, '请先结束课堂回答并保存记录。')
+
+    app.state.guidance = guidance.Guidance(app, root, stream_reply, require_guidance_idle)
 
     @app.get("/api/health")
     async def health():

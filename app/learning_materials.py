@@ -37,6 +37,7 @@ def owned_path(root, material_id):
 
 
 def read(root, material_id):
+    recover_pending(root)
     path = owned_path(root, material_id)
     try:
         raw = path.read_bytes()
@@ -93,3 +94,96 @@ def migrate(root):
 
 if __name__ == '__main__':
     print(json.dumps(migrate(Path(__file__).resolve().parent.parent), ensure_ascii=False))
+
+
+def initialize(root):
+    """Only a genuinely empty data directory is a new installation."""
+    recover_pending(root)
+    if (root / 'data/learning-source.json').exists():
+        return
+    data = root / 'data'
+    entries = [p for p in data.iterdir() if p.name != '.gitkeep'] if data.exists() else []
+    if entries:
+        # Keep pre-material legacy installations in their explicit basic mode.
+        if (data / 'learning-materials').exists():
+            raise ValueError('材料目录存在但来源配置缺失，请恢复配置；未覆盖材料。')
+        return
+    defaults = Path(__file__).resolve().parent.parent / 'defaults'
+    files = {f'core/{key}.md': (defaults / f'{key}.md').read_text(encoding='utf-8') for key in EDITABLE}
+    # Staging plus rename prevents a half-written source directory from being used.
+    data.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='.initialize-', dir=data) as temporary:
+        staged = Path(temporary) / 'materials'
+        for relative, text in files.items():
+            storage.atomic_write(staged / relative, text)
+        staged.rename(data / 'learning-materials')
+    storage.atomic_write(data / 'learning-source.json', json.dumps({
+        'root': 'data/learning-materials', 'managed': True, 'materials': list(files),
+    }, ensure_ascii=False))
+
+
+def transaction_path(root):
+    return root / 'data/material-change-pending.json'
+
+
+def recover_pending(root):
+    """Roll forward a durable accepted change before any material read/write."""
+    path = transaction_path(root)
+    if not path.exists():
+        return
+    record = json.loads(path.read_text(encoding='utf-8'))
+    changes = record['changes']
+    if not changes or any(key not in EDITABLE for key in changes):
+        raise ValueError('材料变更记录损坏，请检查本地文件。')
+    # Do not silently clobber edits made outside the app during recovery.
+    for key, change in changes.items():
+        current = owned_path(root, key).read_bytes().decode('utf-8')
+        if current not in (change['before'], change['after']):
+            raise HTTPException(409, '待恢复变更与材料不一致，请保留文件并检查；未覆盖外部修改。')
+    for key, change in changes.items():
+        target = owned_path(root, key)
+        if target.read_bytes().decode('utf-8') != change['after']:
+            storage.atomic_write(target, change['after'])
+    storage.atomic_write(root / 'data/material-change-last.json', json.dumps(record, ensure_ascii=False))
+    path.unlink()
+
+
+def last_change(root):
+    recover_pending(root)
+    path = root / 'data/material-change-last.json'
+    return json.loads(path.read_text(encoding='utf-8')) if path.exists() else None
+
+
+def apply_changes(root, identifier, changes, *, undo_of=None):
+    """No await: version checks, journal and writes are one service operation."""
+    previous = last_change(root)
+    if previous and previous['id'] == identifier:
+        return previous  # Retrying a successful request after a lost response.
+    actual = {}
+    for key, change in changes.items():
+        current = read(root, key)
+        if current['revision'] != change['revision']:
+            raise HTTPException(409, '材料已变化，请重新整理建议；未覆盖新编辑。')
+        if not change['content'].strip():
+            raise HTTPException(400, '材料不能为空。')
+        actual[key] = {'before': current['content'], 'after': change['content']}
+    record = {'id': identifier, 'undo_of': undo_of, 'changes': actual}
+    storage.atomic_write(transaction_path(root), json.dumps(record, ensure_ascii=False))
+    recover_pending(root)
+    return record
+
+
+def undo(root, identifier):
+    from uuid import uuid4
+    previous = last_change(root)
+    if previous and previous.get('undo_of') == identifier:
+        return previous
+    if not previous or previous['id'] != identifier or previous.get('undo_of'):
+        raise HTTPException(409, '可撤销的变更已变化，请重新读取。')
+    changes = {}
+    for key, change in previous['changes'].items():
+        current = read(root, key)
+        if current['content'] != change['after']:
+            raise HTTPException(409, '应用后材料已有编辑，不能直接撤销覆盖。')
+        changes[key] = {'revision': current['revision'], 'content': change['before']}
+    return apply_changes(root, str(uuid4()), changes, undo_of=identifier)

@@ -53,7 +53,8 @@ class ChatTests(unittest.TestCase):
         client = self.client()
         response = client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "message": "问题"})
         self.assertEqual(response.status_code, 400)
-        self.assertFalse((self.root / "data").exists())
+        self.assertFalse((self.root / "data/conversations").exists())
+        self.assertFalse((self.root / "data/contexts").exists())
 
     def test_chat_is_saved_and_restored_by_a_new_app(self):
         with TestClient(create_app(self.root, success)) as client:
@@ -89,7 +90,7 @@ class ChatTests(unittest.TestCase):
         self.assertEqual(client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "retry_id": failed["id"]}).status_code, 409)
         client.post("/api/chat", json={"conversation_id": client.get("/api/conversation").json()["conversation"]["id"], "message": "继续"})
         self.assertEqual(calls[-1], [
-            {"role": "system", "content": teaching.BASIC_PROMPT},
+            {"role": "system", "content": teaching.prepare(self.root)['system_prompt']},
             {"role": "user", "content": "解释指针"},
             {"role": "assistant", "content": "完整回答"},
             {"role": "user", "content": "继续"},

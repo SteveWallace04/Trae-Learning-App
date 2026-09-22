@@ -1,5 +1,9 @@
 # 默认材料
 
+## 当前行为（2026-09-22）
+
+全新 data 目录首次启动复制 teaching.md、profile.md、goals.md；已有副本不会被模板更新覆盖。guidance.md 属于应用的指导助手维护规范，直接随代码读取，不复制成用户材料，也不供指导助手修改。旧安装保留原来的十份材料。下文初始化待实现说明已被本节替代。
+
 - [teaching.md](teaching.md)：从原项目提取的通用教学原则，无个人学习记录。
 - [profile.md](profile.md)：空白背景与偏好模板。
 - [goals.md](goals.md)：空白学习目标模板。

@@ -10,6 +10,7 @@
   <script src="/static/vendor/purify.min.js" defer></script>
   <script src="/static/app.js?v=7" defer></script>
   <script src="/static/material-editor.js?v=7" defer></script>
+  <script src="/static/guidance.js?v=1" defer></script>
   <script src="/static/practice.js?v=7" defer></script>
 </head>
 <body>
@@ -27,6 +28,7 @@
 
   <div class="app-layout">
   <aside class="conversation-sidebar" aria-label="对话管理">
+    <button id="guidance-open" class="secondary" type="button">学习指导</button>
     <button id="conversation-new" class="secondary" type="button" disabled>＋ 新建对话</button>
     <h2>历史对话</h2>
     <nav id="conversation-list" aria-label="历史对话"></nav>
@@ -133,6 +135,23 @@
     </section>
     <p id="breakpoint-status" role="status" class="field-note"></p>
     <p class="field-note">已保存断点会供后续普通聊天参考，不必另开续学流程。</p>
+  </dialog>
+  <dialog id="guidance-dialog" aria-labelledby="guidance-title">
+    <div class="dialog-heading"><h2 id="guidance-title">学习指导</h2><button id="guidance-close" class="secondary" type="button">返回课堂</button></div>
+    <p class="field-note">聊聊背景、方向或希望怎样教。普通交流不修改材料；整理建议会再次调用模型，只有确认应用才保存。相关材料、讨论及主动附带的课堂片段会发送给 DeepSeek。</p>
+    <p id="guidance-context-note" class="field-note"></p>
+    <div id="guidance-messages" aria-label="指导对话"></div>
+    <details id="guidance-attachment" hidden><summary>待发送的课堂片段</summary><pre id="guidance-attachment-text"></pre><button id="guidance-remove-attachment" class="secondary" type="button">移除引用</button></details>
+    <form id="guidance-form">
+      <label for="guidance-input">你想讨论或调整什么？</label>
+      <textarea id="guidance-input" rows="3" maxlength="8000" placeholder="例如：我希望你先解释，再问我是否理解……"></textarea>
+      <div class="practice-actions"><button id="guidance-send" class="send" type="submit">发送</button><button id="guidance-stop" class="secondary" type="button" hidden>停止</button><button id="guidance-retry" class="secondary" type="button" hidden>重试回答</button><button id="guidance-save" class="secondary" type="button" hidden>重试保存</button><button id="guidance-reload" class="secondary" type="button">重新读取</button></div>
+    </form>
+    <p id="guidance-status" class="field-note" role="status" aria-live="polite"></p>
+    <details><summary>本次整理将采用的讨论</summary><div id="guidance-included"></div></details>
+    <button id="guidance-propose" class="secondary" type="button">整理修改建议</button>
+    <section id="guidance-proposal" aria-label="修改建议" hidden></section>
+    <div class="practice-actions"><button id="guidance-apply" class="send" type="button" hidden>确认应用全部修改</button><button id="guidance-dismiss" class="secondary" type="button" hidden>返回讨论，暂不应用</button><button id="guidance-undo" class="secondary" type="button" hidden>撤销最近一次应用</button></div>
   </dialog>
 </body>
 </html>
